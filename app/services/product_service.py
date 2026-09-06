@@ -140,12 +140,19 @@ class ProductoService:
         nuevo_id = cursor.lastrowid
         cursor.close()
 
+        if nuevo_id is None:
+            raise RuntimeError("No se pudo obtener el ID del producto recién insertado.")
+
         # Si se incluyó receta en la solicitud, guardarla atómicamente
         if data.receta and len(data.receta) > 0:
             from app.services.insumo_service import InsumoService
             InsumoService.guardar_receta_producto(conn, nuevo_id, data.receta)
 
-        return ProductoService.obtener_por_id(conn, nuevo_id)  # type: ignore
+        producto = ProductoService.obtener_por_id(conn, nuevo_id)
+        if producto is None:
+            raise RuntimeError(f"Error al recuperar el producto recién creado con ID {nuevo_id}.")
+
+        return producto
 
     @staticmethod
     def actualizar_producto(
