@@ -7,10 +7,10 @@ con respaldo automático timestamped en la carpeta /backups.
 
 from typing import Optional
 # pyrefly: ignore [missing-import]
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 
 from app.database import get_db
-from app.models.schemas import ResumenDiarioResponse, CierreCajaResponse
+from app.models.schemas import ResumenDiarioResponse, CierreCajaResponse, AuditoriaJornadaResponse
 from app.services.caja_service import CajaService
 
 router = APIRouter(prefix="/api/caja", tags=["Cierre de Caja & Reportes"])
@@ -26,6 +26,36 @@ def obtener_resumen_diario(
     """
     with get_db() as conn:
         return CajaService.obtener_resumen_diario(conn, fecha_str=fecha)
+
+
+@router.get("/auditoria-jornada", response_model=AuditoriaJornadaResponse, summary="Auditoría detallada de comandas y ventas")
+def obtener_auditoria_jornada(
+    fecha: Optional[str] = Query(None, description="Fecha de consulta (YYYY-MM-DD). Por defecto hoy.")
+) -> dict:
+    """
+    Retorna la auditoría completa con todas las comandas, pedidos cobrados, ítems servidos,
+    precios y medios de pago para control financiero y arqueo.
+    """
+    with get_db() as conn:
+        return CajaService.obtener_auditoria_detallada(conn, fecha_str=fecha)
+
+
+@router.get("/descargar-informe-md", summary="Descargar informe de cierre en formato Markdown")
+def descargar_informe_markdown(
+    fecha: Optional[str] = Query(None, description="Fecha de consulta (YYYY-MM-DD). Por defecto hoy.")
+):
+    """
+    Genera y descarga el archivo Markdown (.md) con las tablas consolidadas de la jornada.
+    """
+    with get_db() as conn:
+        auditoria = CajaService.obtener_auditoria_detallada(conn, fecha_str=fecha)
+        md_content = CajaService.generar_markdown_informe_cierre(auditoria)
+        filename = f"cierre_caja_{auditoria['fecha']}.md"
+        return Response(
+            content=md_content,
+            media_type="text/markdown",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
 
 
 @router.post("/cerrar", response_model=CierreCajaResponse, summary="Ejecutar cierre formal de caja y backup")

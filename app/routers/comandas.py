@@ -2,9 +2,9 @@
 Router de la API REST para Comandas de Salón (Mesas Abiertas).
 """
 
-from typing import List
+from typing import List, Optional
 # pyrefly: ignore [missing-import]
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 
 from app.database import get_db, atomic_transaction
 from app.services.comanda_service import ComandaService
@@ -16,6 +16,7 @@ from app.models.schemas import (
     MesaEstadoResponse,
     ComandaCheckout,
     PedidoResponse,
+    ComandaCancelRequest,
 )
 
 router = APIRouter(prefix="/api/comandas", tags=["Comandas y Mesas"])
@@ -23,7 +24,7 @@ router = APIRouter(prefix="/api/comandas", tags=["Comandas y Mesas"])
 
 @router.get("/mesas-estado", response_model=List[MesaEstadoResponse])
 def listar_estado_mesas():
-    """Retorna el mapa del salón con el estado de cada mesa (Libre u Ocupada con subtotal)."""
+    """Retorna el mapa del salón con el estado de cada mesa (Libre u Ocupada con subtotal y estado de comanda)."""
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT valor FROM configuracion WHERE clave = 'mesas_activas';")
@@ -73,7 +74,7 @@ def abrir_comanda(data: ComandaCreate):
 
 @router.post("/{comanda_id}/items", response_model=ComandaResponse)
 def agregar_items_comanda(comanda_id: int, data: ComandaItemBatchAdd):
-    """Agrega una ronda de consumos a una comanda abierta."""
+    """Agrega una ronda de consumos a una comanda activa en preparación."""
     with get_db() as conn:
         try:
             return ComandaService.agregar_items_comanda(conn, comanda_id, data.items)
@@ -83,12 +84,50 @@ def agregar_items_comanda(comanda_id: int, data: ComandaItemBatchAdd):
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
+@router.post("/{comanda_id}/servir", response_model=ComandaResponse)
+def marcar_comanda_servida(comanda_id: int):
+    """
+    Marca todos los productos pendientes de la comanda como Servidos,
+    descontando atómicamente el stock físico y de insumos en cocina/barra.
+    """
+    try:
+        with atomic_transaction() as conn:
+            return ComandaService.marcar_comanda_servida(conn, comanda_id)
+    except StockInsuficienteError as sie:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(sie))
+    except ValueError as ve:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@router.post("/{comanda_id}/items/{detalle_id}/servir", response_model=ComandaResponse)
+def marcar_item_servido(comanda_id: int, detalle_id: int):
+    """
+    Marca un ítem individual de la comanda como Servido,
+    descontando su stock de inmediato.
+    """
+    try:
+        with atomic_transaction() as conn:
+            return ComandaService.marcar_item_servido(conn, comanda_id, detalle_id)
+    except StockInsuficienteError as sie:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(sie))
+    except ValueError as ve:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
 @router.delete("/{comanda_id}/items/{detalle_id}", response_model=ComandaResponse)
-def eliminar_item_comanda(comanda_id: int, detalle_id: int):
-    """Elimina una línea específica de una comanda abierta."""
-    with get_db() as conn:
+def eliminar_item_comanda(
+    comanda_id: int,
+    detalle_id: int,
+    restaurar_stock: bool = Query(False, description="Si es True y el ítem ya estaba servido, reintegra el stock; si es False, se asume merma/desperdicio.")
+):
+    """Elimina una línea específica de una comanda activa."""
+    with atomic_transaction() as conn:
         try:
-            return ComandaService.eliminar_item_comanda(conn, comanda_id, detalle_id)
+            return ComandaService.eliminar_item_comanda(conn, comanda_id, detalle_id, restaurar_stock=restaurar_stock)
         except ValueError as ve:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
 
@@ -97,8 +136,8 @@ def eliminar_item_comanda(comanda_id: int, detalle_id: int):
 def cobrar_comanda(comanda_id: int, checkout_data: ComandaCheckout):
     """
     Liquida la comanda de la mesa:
-    Descuenta inventario (recetas o stock simple), registra el ticket de cobro
-    y libera la mesa para nuevos clientes.
+    Descuenta inventario pendiente (sin duplicar los ítems ya servidos),
+    registra el ticket de cobro y libera la mesa para nuevos clientes.
     """
     try:
         with atomic_transaction() as conn:
@@ -112,10 +151,16 @@ def cobrar_comanda(comanda_id: int, checkout_data: ComandaCheckout):
 
 
 @router.post("/{comanda_id}/cancelar")
-def cancelar_comanda(comanda_id: int):
-    """Anula la comanda y libera la mesa sin generar cobro."""
-    with get_db() as conn:
+def cancelar_comanda(
+    comanda_id: int,
+    restaurar_stock: bool = Query(False, description="Si es True reintegra inventario servido; si es False (default), se asume merma/desperdicio de alimentos.")
+):
+    """
+    Anula la comanda y libera la mesa.
+    Permite decidir si el stock ya servido se reintegra al inventario o se computa como merma sin recuperar.
+    """
+    with atomic_transaction() as conn:
         try:
-            return ComandaService.cancelar_comanda(conn, comanda_id)
+            return ComandaService.cancelar_comanda(conn, comanda_id, restaurar_stock=restaurar_stock)
         except ValueError as ve:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))

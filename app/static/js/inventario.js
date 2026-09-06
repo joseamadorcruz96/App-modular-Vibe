@@ -594,10 +594,19 @@ window.Inventario = {
     if (chkRecipe) chkRecipe.checked = false;
     const builder = document.getElementById('new-prod-recipe-builder');
     if (builder) builder.style.display = 'none';
+
+    // Deshabilitar campos auxiliares de receta para que no interfieran con la validación HTML5
+    const cantInput = document.getElementById('new-prod-recipe-cant-input');
+    if (cantInput) {
+      cantInput.disabled = true;
+      cantInput.value = '10';
+    }
+    const selectInsumo = document.getElementById('new-prod-recipe-insumo-select');
+    if (selectInsumo) selectInsumo.disabled = true;
+
     this.updateNewProductRecipeMetrics();
 
     // Poblar select de insumos
-    const selectInsumo = document.getElementById('new-prod-recipe-insumo-select');
     if (selectInsumo && this.insumos) {
       selectInsumo.innerHTML = this.insumos
         .filter(i => i.activo)
@@ -614,11 +623,16 @@ window.Inventario = {
 
   toggleNewProductRecipe(enable) {
     const builder = document.getElementById('new-prod-recipe-builder');
+    const cantInput = document.getElementById('new-prod-recipe-cant-input');
+    const selectInsumo = document.getElementById('new-prod-recipe-insumo-select');
+
     if (builder) {
       builder.style.display = enable ? 'block' : 'none';
     }
+    if (cantInput) cantInput.disabled = !enable;
+    if (selectInsumo) selectInsumo.disabled = !enable;
+
     if (enable) {
-      const selectInsumo = document.getElementById('new-prod-recipe-insumo-select');
       if (selectInsumo && this.insumos) {
         selectInsumo.innerHTML = this.insumos
           .filter(i => i.activo)
@@ -721,6 +735,11 @@ window.Inventario = {
     const precio_venta = parseFloat(document.getElementById('new-prod-precio').value);
 
     const hasRecipe = document.getElementById('new-prod-has-recipe') && document.getElementById('new-prod-has-recipe').checked;
+    if (hasRecipe && this.nuevoProductoReceta.length === 0) {
+      App.showToast('Activó la receta pero no ha agregado ingredientes. Añada al menos uno o desmarque la casilla.', 'warning');
+      return;
+    }
+
     const recetaPayload = hasRecipe && this.nuevoProductoReceta.length > 0
       ? this.nuevoProductoReceta.map(r => ({ insumo_id: r.insumo_id, cantidad: r.cantidad }))
       : undefined;

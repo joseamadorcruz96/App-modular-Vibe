@@ -313,7 +313,11 @@ class ComandaItemBatchAdd(BaseModel):
 
 
 class ComandaItemResponse(BaseModel):
-    """Línea de consumo acumulada en una mesa."""
+    """
+    Línea de consumo acumulada en una mesa.
+    Incorpora estado del ítem ('En preparación' / 'Servido' / 'Cancelado')
+    y bandera de 'descontado_stock' para saber si ya descontó existencias en barra/cocina.
+    """
     id: int
     producto_id: int
     codigo: str
@@ -322,7 +326,10 @@ class ComandaItemResponse(BaseModel):
     precio_unitario: float
     subtotal: float
     notas: Optional[str] = None
+    estado: str = "En preparación"
+    descontado_stock: int = 0
     creado_en: Optional[str] = None
+    servido_en: Optional[str] = None
 
 
 class ComandaResponse(BaseModel):
@@ -343,6 +350,8 @@ class MesaEstadoResponse(BaseModel):
     mesa: str
     ocupada: bool
     comanda_id: Optional[int] = None
+    numero_comanda: Optional[str] = None
+    estado: Optional[str] = None
     subtotal: float = 0.0
     cliente: Optional[str] = None
     items_count: int = 0
@@ -367,3 +376,49 @@ class ComandaCheckout(BaseModel):
         if v_cap not in medios:
             raise ValueError(f"Medio de pago inválido. Permitidos: {', '.join(medios)}")
         return v_cap
+
+
+class ComandaCancelRequest(BaseModel):
+    """
+    Petición para cancelar una comanda o ítem servido.
+    Permite decidir explícitamente si se repone el inventario o se asume como merma/desperdicio.
+    """
+    restaurar_stock: bool = Field(False, description="True para restituir inventario; False para registrar merma sin reponer")
+
+
+# ==============================================================================
+# Esquemas para Auditoría Detallada en Cierre de Caja
+# ==============================================================================
+
+class AuditoriaItemVenta(BaseModel):
+    """Desglose de cada producto consumido dentro de una comanda o pedido."""
+    producto_id: int
+    codigo: str
+    nombre: str
+    cantidad: int
+    precio_unitario: float
+    subtotal: float
+
+
+class AuditoriaComandaVenta(BaseModel):
+    """Fila de auditoría para cada transacción/comanda cerrada durante la jornada."""
+    ticket_id: int
+    numero_ticket: str
+    comanda_id: Optional[int] = None
+    numero_comanda: Optional[str] = None
+    mesa: str
+    cliente: str
+    medio_pago: str
+    fecha_hora: str
+    total: float
+    items: List[AuditoriaItemVenta]
+
+
+class AuditoriaJornadaResponse(BaseModel):
+    """Informe consolidado tipo tabla con todas las comandas, productos, pagos y medios de pago."""
+    fecha: str
+    total_recaudado: float
+    cantidad_tickets: int
+    desglose_medios_pago: Dict[str, float]
+    pedidos: List[AuditoriaComandaVenta]
+

@@ -121,8 +121,28 @@ def init_db(database_path: Optional[Path] = None, schema_file: Optional[Path] = 
     # Ejecutar en conexión directa con commits manuales
     conn = sqlite3.connect(database_path, timeout=SQLITE_TIMEOUT_SECONDS)
     try:
+        # Migración previa defensiva e idempotente:
+        # Si comanda_detalles ya existía sin las nuevas columnas, debemos incorporarlas
+        # ANTES de ejecutar el script DDL que crea índices dependientes como idx_comanda_detalles_estado.
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='comanda_detalles';")
+        if cursor.fetchone():
+            cursor.execute("PRAGMA table_info(comanda_detalles);")
+            columnas_existentes = [row[1] for row in cursor.fetchall()]
+
+            if "estado" not in columnas_existentes:
+                cursor.execute("ALTER TABLE comanda_detalles ADD COLUMN estado TEXT NOT NULL DEFAULT 'En preparación';")
+            if "descontado_stock" not in columnas_existentes:
+                cursor.execute("ALTER TABLE comanda_detalles ADD COLUMN descontado_stock INTEGER NOT NULL DEFAULT 0;")
+            if "servido_en" not in columnas_existentes:
+                cursor.execute("ALTER TABLE comanda_detalles ADD COLUMN servido_en TIMESTAMP;")
+
+            conn.commit()
+
+        # Ejecutar script DDL del esquema
         conn.executescript(schema_sql)
         conn.commit()
+        cursor.close()
     finally:
         conn.close()
 

@@ -59,31 +59,20 @@ class OrderService:
         return f"TCK-{hoy_str}-{correlativo:04d}"
 
     @staticmethod
-    def procesar_checkout(conn: sqlite3.Connection, pedido_data: PedidoCreate) -> Dict[str, Any]:
+    def descontar_stock_items(cursor: sqlite3.Cursor, items: List[Dict[str, Any]]) -> None:
         """
-        Ejecuta el cobro atómico del pedido:
-        1. Valida que cada producto exista, esté activo y cuente con stock suficiente.
-        2. Si el producto tiene receta asociada, valida que todos sus insumos tengan stock suficiente.
-        3. Si falta cualquier elemento, aborta con StockInsuficienteError (ROLLBACK total).
-        4. Descuenta existencias en productos y en insumos (si tiene receta).
-        5. Inserta el ticket en `pedidos` y `pedido_detalles`.
+        Valida y descuenta atómicamente el stock de productos y sus insumos según receta.
+        items: Lista de dicts con claves 'producto_id' y 'cantidad'.
+        Lanza StockInsuficienteError o ValueError si no es posible cubrir el pedido.
         """
-        cursor = conn.cursor()
+        cantidades_solicitadas: Dict[int, float] = {}
+        for item in items:
+            p_id = int(item["producto_id"])
+            cantidades_solicitadas[p_id] = cantidades_solicitadas.get(p_id, 0.0) + float(item["cantidad"])
 
-        # Agrupar cantidades de productos solicitados
-        cantidades_solicitadas: Dict[int, int] = {}
-        for item in pedido_data.items:
-            cantidades_solicitadas[item.producto_id] = (
-                cantidades_solicitadas.get(item.producto_id, 0) + item.cantidad
-            )
-
-        items_procesados = []
-        total_calculado = 0.0
-
-        # Mapeo de insumos totales requeridos: {insumo_id: {info, total_necesario}}
         insumos_requeridos: Dict[int, Dict[str, Any]] = {}
 
-        # Paso 1: Inspeccionar cada producto en catálogo
+        # 1. Validar existencias de productos en catálogo
         for prod_id, cant_requerida in cantidades_solicitadas.items():
             cursor.execute(
                 """
@@ -101,7 +90,6 @@ class OrderService:
             if prod_row["activo"] != 1:
                 raise ValueError(f"El producto '{prod_row['nombre']}' se encuentra deshabilitado.")
 
-            # Validación de stock del producto
             if prod_row["stock_actual"] < cant_requerida:
                 raise StockInsuficienteError(
                     item_id=prod_id,
@@ -111,7 +99,7 @@ class OrderService:
                     unidad="unidades"
                 )
 
-            # Consultar si el producto tiene receta (insumos requeridos)
+            # Consultar si el producto tiene receta (escandallo de insumos)
             cursor.execute(
                 """
                 SELECT rd.insumo_id, i.codigo, i.nombre, i.unidad_medida, i.stock_actual,
@@ -142,6 +130,113 @@ class OrderService:
                     }
                 insumos_requeridos[insumo_id]["total_solicitado"] += necesario
 
+        # 2. Validar existencias de todos los insumos acumulados
+        for insumo_id, ins_data in insumos_requeridos.items():
+            if ins_data["stock_actual"] < ins_data["total_solicitado"]:
+                raise StockInsuficienteError(
+                    item_id=insumo_id,
+                    item_nombre=ins_data["nombre"],
+                    solicitado=ins_data["total_solicitado"],
+                    disponible=ins_data["stock_actual"],
+                    unidad=ins_data["unidad_medida"]
+                )
+
+        # 3. Descuento atómico de existencias
+        for prod_id, cant in cantidades_solicitadas.items():
+            cursor.execute(
+                """
+                UPDATE productos
+                SET stock_actual = stock_actual - ?,
+                    actualizado_en = CURRENT_TIMESTAMP
+                WHERE id = ?;
+                """,
+                (cant, prod_id)
+            )
+
+        for insumo_id, ins_data in insumos_requeridos.items():
+            cursor.execute(
+                """
+                UPDATE insumos
+                SET stock_actual = stock_actual - ?,
+                    actualizado_en = CURRENT_TIMESTAMP
+                WHERE id = ?;
+                """,
+                (ins_data["total_solicitado"], insumo_id)
+            )
+
+    @staticmethod
+    def reintegrar_stock_items(cursor: sqlite3.Cursor, items: List[Dict[str, Any]]) -> None:
+        """
+        Reintegra al inventario el stock de productos y sus insumos según receta.
+        items: Lista de dicts con claves 'producto_id' y 'cantidad'.
+        """
+        cantidades: Dict[int, float] = {}
+        for item in items:
+            p_id = int(item["producto_id"])
+            cantidades[p_id] = cantidades.get(p_id, 0.0) + float(item["cantidad"])
+
+        for prod_id, cant in cantidades.items():
+            cursor.execute(
+                """
+                UPDATE productos
+                SET stock_actual = stock_actual + ?,
+                    actualizado_en = CURRENT_TIMESTAMP
+                WHERE id = ?;
+                """,
+                (cant, prod_id)
+            )
+            cursor.execute(
+                """
+                SELECT insumo_id, cantidad as cant_por_porcion
+                FROM receta_detalles
+                WHERE producto_id = ?;
+                """,
+                (prod_id,)
+            )
+            for r in cursor.fetchall():
+                reintegrar_insumo = r["cant_por_porcion"] * cant
+                cursor.execute(
+                    """
+                    UPDATE insumos
+                    SET stock_actual = stock_actual + ?,
+                        actualizado_en = CURRENT_TIMESTAMP
+                    WHERE id = ?;
+                    """,
+                    (reintegrar_insumo, r["insumo_id"])
+                )
+
+    @staticmethod
+    def procesar_checkout(conn: sqlite3.Connection, pedido_data: PedidoCreate) -> Dict[str, Any]:
+        """
+        Ejecuta el cobro atómico del pedido directo (sin comanda previa de mesa):
+        1. Valida y descuenta atómicamente existencias en productos e insumos.
+        2. Inserta el ticket en `pedidos` y `pedido_detalles`.
+        """
+        cursor = conn.cursor()
+
+        cantidades_solicitadas: Dict[int, int] = {}
+        for item in pedido_data.items:
+            cantidades_solicitadas[item.producto_id] = (
+                cantidades_solicitadas.get(item.producto_id, 0) + item.cantidad
+            )
+
+        items_para_descuento = [
+            {"producto_id": p_id, "cantidad": cant}
+            for p_id, cant in cantidades_solicitadas.items()
+        ]
+
+        # Validar y descontar stock atómicamente
+        OrderService.descontar_stock_items(cursor, items_para_descuento)
+
+        items_procesados = []
+        total_calculado = 0.0
+
+        for prod_id, cant_requerida in cantidades_solicitadas.items():
+            cursor.execute(
+                "SELECT id, codigo, nombre, precio_venta FROM productos WHERE id = ?;",
+                (prod_id,)
+            )
+            prod_row = cursor.fetchone()
             subtotal_linea = float(prod_row["precio_venta"]) * cant_requerida
             total_calculado += subtotal_linea
 
@@ -154,43 +249,7 @@ class OrderService:
                 "subtotal": subtotal_linea
             })
 
-        # Paso 2: Validación previa de todos los insumos acumulados
-        for insumo_id, ins_data in insumos_requeridos.items():
-            if ins_data["stock_actual"] < ins_data["total_solicitado"]:
-                raise StockInsuficienteError(
-                    item_id=insumo_id,
-                    item_nombre=ins_data["nombre"],
-                    solicitado=ins_data["total_solicitado"],
-                    disponible=ins_data["stock_actual"],
-                    unidad=ins_data["unidad_medida"]
-                )
-
-        # Paso 3: Descuento atómico de existencias
-        # A) Descontar productos
-        for prod_id, cant in cantidades_solicitadas.items():
-            cursor.execute(
-                """
-                UPDATE productos
-                SET stock_actual = stock_actual - ?,
-                    actualizado_en = CURRENT_TIMESTAMP
-                WHERE id = ?;
-                """,
-                (cant, prod_id)
-            )
-
-        # B) Descontar insumos (si aplica)
-        for insumo_id, ins_data in insumos_requeridos.items():
-            cursor.execute(
-                """
-                UPDATE insumos
-                SET stock_actual = stock_actual - ?,
-                    actualizado_en = CURRENT_TIMESTAMP
-                WHERE id = ?;
-                """,
-                (ins_data["total_solicitado"], insumo_id)
-            )
-
-        # Paso 4: Inserción de cabecera de pedido
+        total_calculado = round(total_calculado, 2)
         numero_ticket = OrderService.generar_numero_ticket(conn)
         fecha_hora_local = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         cursor.execute(
@@ -210,7 +269,6 @@ class OrderService:
         )
         pedido_id = cursor.lastrowid
 
-        # Paso 5: Inserción de líneas de ticket
         for item in items_procesados:
             cursor.execute(
                 """
@@ -252,8 +310,9 @@ class OrderService:
         """
         Liquida una comanda abierta de salón:
         1. Consulta los consumos acumulados en la comanda.
-        2. Procesa el cobro y descuenta el inventario mediante procesar_checkout.
-        3. Cierra la comanda ('Cobrada') y la asocia al número de pedido emitido.
+        2. Para los ítems con descontado_stock == 0 (aún no servidos), descuenta stock de productos e insumos.
+        3. Para los ítems con descontado_stock == 1 (ya servidos), NO descuenta de nuevo para evitar duplicidad.
+        4. Registra el ticket de cobro y cierra la comanda ('Cobrada').
         """
         cursor = conn.cursor()
         cursor.execute(
@@ -264,13 +323,20 @@ class OrderService:
         if not comanda:
             cursor.close()
             raise ValueError(f"Comanda ID {comanda_id} no encontrada.")
-        if comanda["estado"] != "Abierta":
+        if comanda["estado"] in ("Cobrada", "Cancelada"):
             cursor.close()
-            raise ValueError(f"La comanda no está abierta (Estado actual: '{comanda['estado']}').")
+            raise ValueError(f"La comanda no está activa (Estado actual: '{comanda['estado']}').")
 
-        # Obtener ítems de la comanda
+        # Obtener ítems activos de la comanda
         cursor.execute(
-            "SELECT producto_id, cantidad FROM comanda_detalles WHERE comanda_id = ?;",
+            """
+            SELECT cd.id, cd.producto_id, cd.cantidad, cd.precio_unitario, cd.subtotal,
+                   cd.descontado_stock, cd.estado, p.codigo, p.nombre
+            FROM comanda_detalles cd
+            JOIN productos p ON cd.producto_id = p.id
+            WHERE cd.comanda_id = ? AND cd.estado != 'Cancelado'
+            ORDER BY cd.id ASC;
+            """,
             (comanda_id,)
         )
         detalles = cursor.fetchall()
@@ -278,20 +344,73 @@ class OrderService:
             cursor.close()
             raise ValueError("No se puede cobrar una comanda sin productos agregados.")
 
-        # Construir pedido equivalente
-        items_pedido = [
-            ItemPedidoCreate(producto_id=d["producto_id"], cantidad=d["cantidad"])
+        # Filtrar ítems que no han sido descontados aún
+        items_sin_descontar = [
+            {"id": d["id"], "producto_id": d["producto_id"], "cantidad": d["cantidad"]}
             for d in detalles
+            if d["descontado_stock"] == 0
         ]
-        pedido_create = PedidoCreate(
-            mesa=comanda["mesa"],
-            cliente=comanda["cliente"],
-            medio_pago=checkout_data.medio_pago,
-            items=items_pedido
-        )
 
-        # Ejecutar cobro atómico
-        resultado_pedido = OrderService.procesar_checkout(conn, pedido_create)
+        if items_sin_descontar:
+            OrderService.descontar_stock_items(cursor, items_sin_descontar)
+            cursor.execute(
+                """
+                UPDATE comanda_detalles
+                SET descontado_stock = 1,
+                    estado = 'Servido',
+                    servido_en = CURRENT_TIMESTAMP
+                WHERE comanda_id = ? AND descontado_stock = 0;
+                """,
+                (comanda_id,)
+            )
+
+        total_calculado = round(sum(float(d["subtotal"]) for d in detalles), 2)
+        descuento = round(checkout_data.descuento, 2)
+        total_a_pagar = max(0.0, round(total_calculado - descuento, 2))
+
+        numero_ticket = OrderService.generar_numero_ticket(conn)
+        fecha_hora_local = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cursor.execute(
+            """
+            INSERT INTO pedidos (numero_ticket, fecha_hora, mesa, cliente, medio_pago, subtotal, descuento, total, estado)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Completado');
+            """,
+            (
+                numero_ticket,
+                fecha_hora_local,
+                comanda["mesa"],
+                comanda["cliente"] or "Consumidor Final",
+                checkout_data.medio_pago,
+                total_calculado,
+                descuento,
+                total_a_pagar
+            )
+        )
+        pedido_id = cursor.lastrowid
+
+        items_procesados = []
+        for d in detalles:
+            cursor.execute(
+                """
+                INSERT INTO pedido_detalles (pedido_id, producto_id, cantidad, precio_unitario, subtotal)
+                VALUES (?, ?, ?, ?, ?);
+                """,
+                (
+                    pedido_id,
+                    d["producto_id"],
+                    d["cantidad"],
+                    d["precio_unitario"],
+                    d["subtotal"]
+                )
+            )
+            items_procesados.append({
+                "producto_id": d["producto_id"],
+                "codigo": d["codigo"],
+                "nombre": d["nombre"],
+                "cantidad": d["cantidad"],
+                "precio_unitario": float(d["precio_unitario"]),
+                "subtotal": float(d["subtotal"])
+            })
 
         # Actualizar comanda a Cobrada
         cursor.execute(
@@ -302,12 +421,24 @@ class OrderService:
                 cerrado_en = CURRENT_TIMESTAMP
             WHERE id = ?;
             """,
-            (resultado_pedido["id"], comanda_id)
+            (pedido_id, comanda_id)
         )
         cursor.close()
 
-        resultado_pedido["comanda_id"] = comanda_id
-        return resultado_pedido
+        return {
+            "id": pedido_id,
+            "numero_ticket": numero_ticket,
+            "fecha_hora": str(fecha_hora_local),
+            "mesa": comanda["mesa"],
+            "cliente": comanda["cliente"] or "Consumidor Final",
+            "medio_pago": checkout_data.medio_pago,
+            "subtotal": total_calculado,
+            "descuento": descuento,
+            "total": total_a_pagar,
+            "estado": "Completado",
+            "comanda_id": comanda_id,
+            "detalles": items_procesados
+        }
 
     @staticmethod
     def obtener_pedido_por_id(conn: sqlite3.Connection, pedido_id: int) -> Optional[Dict[str, Any]]:

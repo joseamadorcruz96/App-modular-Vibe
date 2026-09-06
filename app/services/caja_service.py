@@ -99,6 +99,159 @@ class CajaService:
         }
 
     @staticmethod
+    def obtener_auditoria_detallada(
+        conn: sqlite3.Connection,
+        fecha_str: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Genera el informe exhaustivo para auditoría de cierre de caja:
+        Recupera cada comanda y pedido cobrado en la fecha indicada, con desglose de ítems,
+        precios, cantidades, medios de pago y mesa.
+        """
+        if not fecha_str:
+            fecha_str = datetime.date.today().isoformat()
+
+        resumen_base = CajaService.obtener_resumen_diario(conn, fecha_str)
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT p.id as ticket_id, p.numero_ticket, p.fecha_hora, p.mesa, p.cliente,
+                   p.medio_pago, p.total, c.id as comanda_id, c.numero_comanda
+            FROM pedidos p
+            LEFT JOIN comandas c ON c.pedido_id = p.id
+            WHERE DATE(p.fecha_hora) = DATE(?) AND p.estado = 'Completado'
+            ORDER BY p.id ASC;
+            """,
+            (fecha_str,)
+        )
+        pedidos_rows = cursor.fetchall()
+
+        pedidos_detallados = []
+        for p in pedidos_rows:
+            t_id = p["ticket_id"]
+            cursor.execute(
+                """
+                SELECT pd.producto_id, pr.codigo, pr.nombre, pd.cantidad, pd.precio_unitario, pd.subtotal
+                FROM pedido_detalles pd
+                JOIN productos pr ON pd.producto_id = pr.id
+                WHERE pd.pedido_id = ?
+                ORDER BY pd.id ASC;
+                """,
+                (t_id,)
+            )
+            items_rows = cursor.fetchall()
+            items_list = [
+                {
+                    "producto_id": r["producto_id"],
+                    "codigo": r["codigo"],
+                    "nombre": r["nombre"],
+                    "cantidad": int(r["cantidad"]),
+                    "precio_unitario": float(r["precio_unitario"]),
+                    "subtotal": float(r["subtotal"])
+                }
+                for r in items_rows
+            ]
+
+            pedidos_detallados.append({
+                "ticket_id": p["ticket_id"],
+                "numero_ticket": p["numero_ticket"],
+                "comanda_id": p["comanda_id"],
+                "numero_comanda": p["numero_comanda"],
+                "mesa": p["mesa"],
+                "cliente": p["cliente"],
+                "medio_pago": p["medio_pago"],
+                "fecha_hora": str(p["fecha_hora"]),
+                "total": float(p["total"]),
+                "items": items_list
+            })
+
+        cursor.close()
+
+        return {
+            "fecha": fecha_str,
+            "total_recaudado": resumen_base["total_recaudado"],
+            "cantidad_tickets": resumen_base["cantidad_tickets"],
+            "desglose_medios_pago": resumen_base["desglose_medios_pago"],
+            "pedidos": pedidos_detallados
+        }
+
+    @staticmethod
+    def generar_markdown_informe_cierre(auditoria: Dict[str, Any]) -> str:
+        """
+        Compila los datos de auditoría en un documento Markdown estructurado con tablas limpias,
+        ideal para exportar o archivar.
+        """
+        fecha = auditoria["fecha"]
+        total = auditoria["total_recaudado"]
+        cant_tickets = auditoria["cantidad_tickets"]
+        medios = auditoria["desglose_medios_pago"]
+        pedidos = auditoria["pedidos"]
+
+        lineas = [
+            f"# Informe de Cierre de Caja y Auditoría de Ventas",
+            f"**Fecha de Operación:** {fecha}  ",
+            f"**Generado:** {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  ",
+            f"",
+            f"## 1. Resumen Consolidado de Jornada",
+            f"",
+            f"| Métrica | Valor |",
+            f"| :--- | :--- |",
+            f"| **Total Recaudado** | **${total:,.2f}** |",
+            f"| **Cantidad de Tickets / Ventas** | **{cant_tickets}** |",
+            f"",
+            f"### Desglose por Medio de Pago",
+            f"",
+            f"| Medio de Pago | Importe Total |",
+            f"| :--- | :--- |",
+        ]
+
+        for medio, monto in medios.items():
+            lineas.append(f"| {medio} | ${monto:,.2f} |")
+
+        lineas.extend([
+            f"",
+            f"## 2. Registro Detallado de Comandas y Tickets Cobrados",
+            f"",
+            f"| Hora | Ticket | Comanda | Mesa | Cliente | Medio Pago | Total ($) |",
+            f"| :--- | :--- | :--- | :--- | :--- | :--- | :--- |",
+        ])
+
+        if not pedidos:
+            lineas.append(f"| - | *Sin ventas registradas en esta jornada* | - | - | - | - | $0.00 |")
+        else:
+            for p in pedidos:
+                comanda_lbl = p["numero_comanda"] or "Venta Directa"
+                lineas.append(
+                    f"| {p['fecha_hora']} | `{p['numero_ticket']}` | `{comanda_lbl}` | {p['mesa']} | {p['cliente']} | {p['medio_pago']} | ${p['total']:,.2f} |"
+                )
+
+        lineas.extend([
+            f"",
+            f"## 3. Desglose de Productos Servidos por Ticket",
+            f"",
+            f"| Ticket | Producto | Código | Cantidad | P. Unitario ($) | Subtotal ($) |",
+            f"| :--- | :--- | :--- | :---: | :---: | :---: |",
+        ])
+
+        if not pedidos:
+            lineas.append(f"| - | *Sin productos consumidos* | - | 0 | $0.00 | $0.00 |")
+        else:
+            for p in pedidos:
+                for it in p["items"]:
+                    lineas.append(
+                        f"| `{p['numero_ticket']}` | {it['nombre']} | `{it['codigo']}` | {it['cantidad']} | ${it['precio_unitario']:,.2f} | ${it['subtotal']:,.2f} |"
+                    )
+
+        lineas.extend([
+            f"",
+            f"---",
+            f"*Informe emitido automáticamente por CoffeePOS - Caffe-SoKa.*"
+        ])
+
+        return "\n".join(lineas)
+
+    @staticmethod
     def ejecutar_cierre_caja(
         conn: sqlite3.Connection,
         fecha_str: Optional[str] = None,

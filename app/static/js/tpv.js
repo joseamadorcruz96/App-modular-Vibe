@@ -38,6 +38,12 @@ window.TPV = {
       btnCargarMesa.addEventListener('click', () => this.handleEnviarAMesa());
     }
 
+    // Botón de Servir Comanda de Mesa (descuenta stock en cocina/barra)
+    const btnServirCmd = document.getElementById('btn-servir-mesa-cmd');
+    if (btnServirCmd) {
+      btnServirCmd.addEventListener('click', () => this.handleServirComanda());
+    }
+
     // Botón de Cancelar Comanda de Mesa
     const btnCancelarCmd = document.getElementById('btn-cancelar-mesa-cmd');
     if (btnCancelarCmd) {
@@ -92,14 +98,26 @@ window.TPV = {
       for (const m of this.mesasEstado) {
         const isSelected = this.mesaSeleccionada === m.mesa;
         const ocupada = m.ocupada;
-        const badgeColor = ocupada ? '#f59e0b' : '#10b981';
+        let badge = '🟢';
+        let styleExtra = '';
+
+        if (ocupada) {
+          if (m.estado === 'Servida') {
+            badge = '🍽️';
+            styleExtra = 'border-color: #10b981; color: #10b981;';
+          } else {
+            badge = '⏳';
+            styleExtra = 'border-color: #f59e0b; color: #f59e0b;';
+          }
+        }
+
         const label = ocupada 
-          ? `🟠 ${m.mesa} (${App.formatMoney(m.subtotal)})`
+          ? `${badge} ${m.mesa} (${App.formatMoney(m.subtotal)})`
           : `🟢 ${m.mesa}`;
 
         html += `
           <button class="table-pill-btn ${isSelected ? 'selected' : ''} ${ocupada ? 'occupied-table' : ''}" 
-                  style="${ocupada ? 'border-color: #f59e0b; color: #f59e0b;' : ''}"
+                  style="${styleExtra}"
                   onclick="TPV.selectMesa('${m.mesa}')">
             ${label}
           </button>
@@ -127,6 +145,7 @@ window.TPV = {
     const subtotalText = document.getElementById('mesa-comanda-subtotal');
     const mesaActionsGroup = document.getElementById('mesa-actions-group');
     const btnCargarMesa = document.getElementById('btn-cargar-a-mesa');
+    const btnServirCmd = document.getElementById('btn-servir-mesa-cmd');
 
     if (this.mesaSeleccionada === 'Barra / Para Llevar') {
       if (banner) banner.style.display = 'none';
@@ -147,8 +166,26 @@ window.TPV = {
     }
 
     if (this.comandaActiva) {
-      if (badgeInd) badgeInd.style.background = '#f59e0b';
-      if (estadoTexto) estadoTexto.textContent = `${this.mesaSeleccionada} (En Consumo - ${this.comandaActiva.cliente})`;
+      const tienePendientes = (this.comandaActiva.detalles || []).some(d => d.descontado_stock === 0);
+
+      if (this.comandaActiva.estado === 'Servida' && !tienePendientes) {
+        if (badgeInd) badgeInd.style.background = '#10b981';
+        if (estadoTexto) estadoTexto.textContent = `${this.mesaSeleccionada} (🍽️ Servida - ${this.comandaActiva.cliente})`;
+        if (btnServirCmd) {
+          btnServirCmd.style.display = 'inline-block';
+          btnServirCmd.textContent = '✅ Todo Servido';
+          btnServirCmd.disabled = true;
+        }
+      } else {
+        if (badgeInd) badgeInd.style.background = '#f59e0b';
+        if (estadoTexto) estadoTexto.textContent = `${this.mesaSeleccionada} (⏳ En Preparación - ${this.comandaActiva.cliente})`;
+        if (btnServirCmd) {
+          btnServirCmd.style.display = 'inline-block';
+          btnServirCmd.textContent = '🍽️ Marcar Servido';
+          btnServirCmd.disabled = false;
+        }
+      }
+
       if (subtotalText) subtotalText.textContent = `Consumo: ${App.formatMoney(this.comandaActiva.subtotal)}`;
       if (btnCargarMesa) btnCargarMesa.textContent = '➕ Agregar a Mesa';
     } else {
@@ -156,6 +193,7 @@ window.TPV = {
       if (estadoTexto) estadoTexto.textContent = `${this.mesaSeleccionada} (Libre)`;
       if (subtotalText) subtotalText.textContent = '$0';
       if (btnCargarMesa) btnCargarMesa.textContent = '📝 Abrir y Cargar Mesa';
+      if (btnServirCmd) btnServirCmd.style.display = 'none';
     }
 
     this.renderCart();
@@ -278,21 +316,43 @@ window.TPV = {
     let html = '';
 
     if (this.comandaActiva && this.comandaActiva.detalles.length > 0) {
+      const estadoBadgeComanda = this.comandaActiva.estado === 'Servida'
+        ? '<span style="color: #10b981; font-weight: 700; margin-left: 6px;">[🍽️ SERVIDA]</span>'
+        : '<span style="color: #f59e0b; font-weight: 700; margin-left: 6px;">[⏳ EN PREPARACIÓN]</span>';
+
       html += `
-        <div style="font-size: 0.75rem; font-weight: 700; color: var(--accent-gold); text-transform: uppercase; padding: 0.4rem 0; border-bottom: 1px dashed var(--border-subtle);">
-          Consumo ya registrado en mesa (${this.comandaActiva.numero_comanda}):
+        <div style="font-size: 0.75rem; font-weight: 700; color: var(--accent-gold); text-transform: uppercase; padding: 0.4rem 0; border-bottom: 1px dashed var(--border-subtle); display: flex; justify-content: space-between; align-items: center;">
+          <span>Consumo en mesa (${this.comandaActiva.numero_comanda}):</span>
+          <span>${estadoBadgeComanda}</span>
         </div>
       `;
-      html += this.comandaActiva.detalles.map(item => `
-        <div class="cart-item-row" style="opacity: 0.85; background: rgba(255,255,255,0.02);">
-          <div class="cart-item-info">
-            <div class="cart-item-name">📌 ${item.nombre}</div>
-            <div class="cart-item-unit-price">${item.cantidad}x ${App.formatMoney(item.precio_unitario)}</div>
+      html += this.comandaActiva.detalles.map(item => {
+        const servido = item.descontado_stock === 1;
+        const itemStatusTag = servido
+          ? '<span style="color: #10b981; font-size: 0.7rem; font-weight: 700; background: rgba(16, 185, 129, 0.1); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(16, 185, 129, 0.2);">✅ Servido</span>'
+          : '<span style="color: #f59e0b; font-size: 0.7rem; font-weight: 700; background: rgba(245, 158, 11, 0.1); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(245, 158, 11, 0.2);">⏳ Preparando</span>';
+
+        const btnServirIndividual = !servido
+          ? `<button class="table-pill-btn" style="padding: 0.2rem 0.5rem; font-size: 0.72rem; border-color: #10b981; color: #10b981; margin-right: 4px;" onclick="TPV.handleServirItem(${item.id})" title="Marcar servido y descontar stock de inmediato">🍽️ Servir</button>`
+          : '';
+
+        return `
+          <div class="cart-item-row" style="background: rgba(255,255,255,0.02); align-items: center;">
+            <div class="cart-item-info" style="flex: 1;">
+              <div class="cart-item-name" style="display: flex; align-items: center; gap: 4px; flex-wrap: wrap;">
+                <span>${item.nombre}</span>
+                ${itemStatusTag}
+              </div>
+              <div class="cart-item-unit-price">${item.cantidad}x ${App.formatMoney(item.precio_unitario)}</div>
+            </div>
+            <div class="cart-item-subtotal">${App.formatMoney(item.subtotal)}</div>
+            <div style="display: flex; align-items: center;">
+              ${btnServirIndividual}
+              <button class="cart-item-remove" onclick="TPV.removeComandaItem(${item.id})" title="Quitar de la mesa">🗑️</button>
+            </div>
           </div>
-          <div class="cart-item-subtotal">${App.formatMoney(item.subtotal)}</div>
-          <button class="cart-item-remove" onclick="TPV.removeComandaItem(${item.id})" title="Quitar de la mesa">🗑️</button>
-        </div>
-      `).join('');
+        `;
+      }).join('');
     }
 
     if (this.carrito.length > 0) {
@@ -402,8 +462,30 @@ window.TPV = {
       await this.refresh();
 
       if (mostrarNotificacion) {
-        App.showToast(`Productos cargados a ${this.mesaSeleccionada}`, 'success');
+        App.showToast(`Productos cargados a ${this.mesaSeleccionada} (En preparación)`, 'success');
       }
+    } catch (err) {
+      App.showToast(err.message, 'error');
+    }
+  },
+
+  async handleServirComanda() {
+    if (!this.comandaActiva) return;
+    try {
+      await API.serveComanda(this.comandaActiva.id);
+      App.showToast('🍽️ ¡Comanda servida! Stock de barra y cocina descontado.', 'success');
+      await this.refresh();
+    } catch (err) {
+      App.showToast(err.message, 'error');
+    }
+  },
+
+  async handleServirItem(detalleId) {
+    if (!this.comandaActiva) return;
+    try {
+      await API.serveComandaItem(this.comandaActiva.id, detalleId);
+      App.showToast('🍽️ Ítem marcado como servido y stock descontado.', 'success');
+      await this.refresh();
     } catch (err) {
       App.showToast(err.message, 'error');
     }
@@ -411,11 +493,28 @@ window.TPV = {
 
   async removeComandaItem(detalleId) {
     if (!this.comandaActiva) return;
-    if (!confirm('¿Desea quitar este producto de la mesa?')) return;
+    const item = (this.comandaActiva.detalles || []).find(d => d.id === detalleId);
+    if (!item) return;
+
+    let restaurarStock = false;
+    if (item.descontado_stock === 1) {
+      const resp = confirm(
+        `El producto "${item.nombre}" ya fue SERVIDO (su stock fue descontado).\n\n` +
+        `¿Desea RESTAURAR su stock al inventario?\n\n` +
+        `• [Aceptar]: RESTAURAR existencias al inventario.\n` +
+        `• [Cancelar]: Anular como MERMA / DESPERDICIO (sin reponer stock).`
+      );
+      restaurarStock = resp;
+    } else {
+      if (!confirm(`¿Desea quitar "${item.nombre}" de la mesa?`)) return;
+    }
 
     try {
-      await API.removeComandaItem(this.comandaActiva.id, detalleId);
-      App.showToast('Producto retirado de la mesa', 'info');
+      await API.removeComandaItem(this.comandaActiva.id, detalleId, restaurarStock);
+      App.showToast(
+        restaurarStock ? 'Producto retirado y stock restaurado' : 'Producto retirado (merma)',
+        'info'
+      );
       await this.refresh();
     } catch (err) {
       App.showToast(err.message, 'error');
@@ -424,11 +523,35 @@ window.TPV = {
 
   async handleCancelarComanda() {
     if (!this.comandaActiva) return;
-    if (!confirm(`¿Está seguro de cancelar la comanda de ${this.mesaSeleccionada}? La mesa quedará libre.`)) return;
+    const tieneServidos = (this.comandaActiva.detalles || []).some(d => d.descontado_stock === 1);
+    if (tieneServidos) {
+      const modal = document.getElementById('modal-cancelar-comanda');
+      if (modal) {
+        modal.classList.add('active');
+        return;
+      }
+    }
 
+    if (!confirm(`¿Desea cancelar la comanda abierta de ${this.mesaSeleccionada}? La mesa quedará libre.`)) return;
+    await this.ejecutarCancelarComanda(false);
+  },
+
+  closeCancelarModal() {
+    const modal = document.getElementById('modal-cancelar-comanda');
+    if (modal) modal.classList.remove('active');
+  },
+
+  async ejecutarCancelarComanda(restaurarStock = false) {
+    if (!this.comandaActiva) return;
     try {
-      await API.cancelComanda(this.comandaActiva.id);
-      App.showToast(`Comanda de ${this.mesaSeleccionada} cancelada`, 'info');
+      await API.cancelComanda(this.comandaActiva.id, restaurarStock);
+      App.showToast(
+        restaurarStock
+          ? `Comanda cancelada. Stock reincorporado al inventario.`
+          : `Comanda cancelada y registrada como merma/desperdicio.`,
+        'info'
+      );
+      this.closeCancelarModal();
       this.clearCart();
       await this.refresh();
     } catch (err) {

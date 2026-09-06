@@ -449,3 +449,65 @@ def test_api_sistema_limpieza_total_y_cargar_demo():
     assert any(p["codigo"] == "CAF01" for p in prods)
 
 
+def test_api_comandas_servir_y_auditoria_caja():
+    """
+    Prueba por API el flujo completo:
+    1. Abrir comanda y agregar producto.
+    2. Servir comanda via /api/comandas/{id}/servir.
+    3. Cobrar comanda via /api/comandas/{id}/checkout.
+    4. Consultar /api/caja/auditoria-jornada y validar estructura detallada.
+    5. Descargar /api/caja/descargar-informe-md y validar contenido en formato tabla Markdown.
+    """
+    client = TestClient(app)
+
+    # 1. Abrir comanda
+    res_cmd = client.post("/api/comandas/abrir", json={"mesa": "Mesa 4", "cliente": "Carolina"})
+    assert res_cmd.status_code == 201
+    cmd_id = res_cmd.json()["id"]
+
+    # Agregar productos
+    res_add = client.post(f"/api/comandas/{cmd_id}/items", json={
+        "items": [
+            {"producto_id": 1, "cantidad": 2, "notas": "calientes"}
+        ]
+    })
+    assert res_add.status_code == 200
+    assert res_add.json()["estado"] == "En preparación"
+
+    # 2. Servir comanda
+    res_servir = client.post(f"/api/comandas/{cmd_id}/servir")
+    assert res_servir.status_code == 200
+    cmd_servida = res_servir.json()
+    assert cmd_servida["estado"] == "Servida"
+    assert cmd_servida["detalles"][0]["estado"] == "Servido"
+    assert cmd_servida["detalles"][0]["descontado_stock"] == 1
+
+    # 3. Cobrar comanda
+    res_cobro = client.post(f"/api/comandas/{cmd_id}/checkout", json={
+        "medio_pago": "Crédito",
+        "descuento": 0.0
+    })
+    assert res_cobro.status_code == 200
+    ticket_cobrado = res_cobro.json()
+    assert ticket_cobrado["estado"] == "Completado"
+
+    # 4. Auditoría de caja
+    res_audit = client.get("/api/caja/auditoria-jornada")
+    assert res_audit.status_code == 200
+    audit_data = res_audit.json()
+    assert audit_data["total_recaudado"] > 0
+    assert audit_data["cantidad_tickets"] >= 1
+    assert any(p["numero_ticket"] == ticket_cobrado["numero_ticket"] for p in audit_data["pedidos"])
+
+    # 5. Descarga de informe Markdown
+    res_md = client.get("/api/caja/descargar-informe-md")
+    assert res_md.status_code == 200
+    assert "text/markdown" in res_md.headers["content-type"]
+    assert "attachment; filename=cierre_caja_" in res_md.headers["content-disposition"]
+    md_text = res_md.text
+    assert "# Informe de Cierre de Caja y Auditoría de Ventas" in md_text
+    assert ticket_cobrado["numero_ticket"] in md_text
+    assert "| Medio de Pago | Importe Total |" in md_text
+
+
+

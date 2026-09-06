@@ -1,10 +1,12 @@
 /**
  * CoffeePOS - Módulo de Cierre de Caja & Reportes Diarios
- * Controla el balance financiero, arqueo por medio de pago, ranking de ventas y respaldos .db.
+ * Controla el balance financiero, arqueo por medio de pago, ranking de ventas,
+ * auditoría detallada de comandas y exportación de informe en Markdown y PDF.
  */
 
 window.Caja = {
   resumenActual: null,
+  auditoriaActual: null,
 
   async init() {
     this.bindEvents();
@@ -21,6 +23,11 @@ window.Caja = {
     if (btnImprimir) {
       btnImprimir.addEventListener('click', () => this.imprimirReporte());
     }
+
+    const btnDescargarMd = document.getElementById('btn-descargar-informe-md');
+    if (btnDescargarMd) {
+      btnDescargarMd.addEventListener('click', () => this.descargarMarkdown());
+    }
   },
 
   async loadSummary() {
@@ -28,9 +35,70 @@ window.Caja = {
       const resumen = await API.getDailySummary();
       this.resumenActual = resumen;
       this.renderSummary(resumen);
+      await this.loadAuditTable();
     } catch (err) {
       App.showToast('Error al cargar balance diario de caja', 'error');
     }
+  },
+
+  async loadAuditTable() {
+    const tbody = document.getElementById('caja-auditoria-body');
+    if (!tbody) return;
+
+    try {
+      const audit = await API.getAuditReport();
+      this.auditoriaActual = audit;
+
+      if (!audit.pedidos || audit.pedidos.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="8" style="text-align: center; color: var(--text-dim); padding: 2rem;">
+              Sin comandas ni tickets cobrados en esta jornada.
+            </td>
+          </tr>
+        `;
+        return;
+      }
+
+      tbody.innerHTML = audit.pedidos.map(p => {
+        const hora = p.fecha_hora.includes(' ') ? p.fecha_hora.split(' ')[1] : p.fecha_hora;
+        const comandaBadge = p.numero_comanda
+          ? `<span style="color: var(--accent-gold); font-weight: 700; font-size: 0.8rem;">${p.numero_comanda}</span>`
+          : `<span style="color: var(--text-dim); font-size: 0.8rem;">Directo</span>`;
+
+        const itemsDesglose = p.items.map(it => 
+          `• <strong>${it.cantidad}x</strong> ${it.nombre} <span style="color: var(--text-muted); font-size: 0.75rem;">(${App.formatMoney(it.subtotal)})</span>`
+        ).join('<br>');
+
+        return `
+          <tr>
+            <td style="font-family: var(--font-mono); font-size: 0.8rem;">${hora}</td>
+            <td><span class="prod-code-badge">${p.numero_ticket}</span></td>
+            <td>${comandaBadge}</td>
+            <td><strong>${p.mesa}</strong></td>
+            <td>${p.cliente}</td>
+            <td>
+              <span style="background: rgba(255,255,255,0.06); padding: 3px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: 600;">
+                ${p.medio_pago}
+              </span>
+            </td>
+            <td style="font-family: var(--font-mono); font-weight: 800; color: var(--accent-gold);">
+              ${App.formatMoney(p.total)}
+            </td>
+            <td style="font-size: 0.8rem; line-height: 1.4;">
+              ${itemsDesglose}
+            </td>
+          </tr>
+        `;
+      }).join('');
+    } catch (err) {
+      console.error('Error cargando auditoría de caja:', err);
+    }
+  },
+
+  descargarMarkdown() {
+    App.showToast('Generando y descargando informe en Markdown...', 'info');
+    window.location.href = API.getDownloadAuditReportUrl();
   },
 
   renderSummary(r) {
@@ -111,11 +179,47 @@ window.Caja = {
       </tr>
     `).join('');
 
+    // Desglose de auditoría para impresión / PDF
+    let auditHtml = '';
+    if (this.auditoriaActual && this.auditoriaActual.pedidos && this.auditoriaActual.pedidos.length > 0) {
+      const filasAudit = this.auditoriaActual.pedidos.map(p => `
+        <tr style="border-bottom: 1px solid #eee;">
+          <td>${p.fecha_hora.split(' ')[1] || p.fecha_hora}</td>
+          <td><strong>${p.numero_ticket}</strong></td>
+          <td>${p.numero_comanda || 'Directo'}</td>
+          <td>${p.mesa}</td>
+          <td>${p.medio_pago}</td>
+          <td style="text-align: right; font-weight: 700;">${App.formatMoney(p.total)}</td>
+        </tr>
+      `).join('');
+
+      auditHtml = `
+        <div style="margin: 10px 0; border-bottom: 1px dashed #999; padding-bottom: 8px;">
+          <div style="font-weight: 700; font-size: 0.85rem; margin-bottom: 4px;">REGISTRO DE COMANDAS Y VENTAS:</div>
+          <table style="width: 100%; font-size: 0.75rem; border-collapse: collapse;">
+            <thead>
+              <tr style="border-bottom: 1px solid #ccc; font-size: 0.7rem; color: #555;">
+                <th style="text-align: left;">Hora</th>
+                <th style="text-align: left;">Ticket</th>
+                <th style="text-align: left;">Comanda</th>
+                <th style="text-align: left;">Mesa</th>
+                <th style="text-align: left;">Medio</th>
+                <th style="text-align: right;">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${filasAudit}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
     content.innerHTML = `
-      <div class="ticket-container" style="text-align: left;">
+      <div class="ticket-container" style="text-align: left; max-width: 100%;">
         <div class="ticket-header" style="text-align: center;">
-          <h2 style="font-size: 1.1rem; font-weight: 800;">${App.config.nombre_local}</h2>
-          <div style="font-weight: 700; font-size: 0.9rem;">REPORTE DE CIERRE DE CAJA</div>
+          <h2 style="font-size: 1.15rem; font-weight: 800;">${App.config.nombre_local}</h2>
+          <div style="font-weight: 700; font-size: 0.95rem;">INFORME DE CIERRE DE CAJA & AUDITORÍA</div>
           <div style="font-size: 0.8rem; color: #555;">Fecha: ${resumen.fecha}</div>
           ${backupNombre ? `<div style="font-size: 0.65rem; color: #777;">Backup: ${backupNombre}</div>` : ''}
         </div>
@@ -138,6 +242,8 @@ window.Caja = {
           </table>
         </div>
 
+        ${auditHtml}
+
         <div style="margin: 8px 0;">
           <div style="font-weight: 700; font-size: 0.85rem; margin-bottom: 4px;">PRODUCTOS MÁS VENDIDOS:</div>
           <table style="width: 100%; font-size: 0.75rem;">
@@ -154,8 +260,8 @@ window.Caja = {
           </table>
         </div>
 
-        <div class="ticket-footer" style="margin-top: 12px; font-size: 0.75rem; text-align: center;">
-          --- Fin del Reporte ---
+        <div class="ticket-footer" style="margin-top: 12px; font-size: 0.75rem; text-align: center; border-top: 1px dashed #999; padding-top: 6px;">
+          --- Fin del Reporte Oficial de Cierre ---
         </div>
       </div>
     `;

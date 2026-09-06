@@ -110,12 +110,13 @@ CREATE INDEX IF NOT EXISTS idx_receta_producto_id ON receta_detalles(producto_id
 CREATE INDEX IF NOT EXISTS idx_receta_insumo_id ON receta_detalles(insumo_id);
 
 -- 8. Tabla de Comandas de Salón (Mesas Abiertas)
+-- Modificado para ciclo de vida desacoplado: 'Abierta', 'En preparación', 'Servida', 'Cobrada', 'Cancelada'
 CREATE TABLE IF NOT EXISTS comandas (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     numero_comanda TEXT NOT NULL UNIQUE,
     mesa TEXT NOT NULL,
     cliente TEXT DEFAULT 'Consumidor Final',
-    estado TEXT NOT NULL DEFAULT 'Abierta' CHECK (estado IN ('Abierta', 'Cobrada', 'Cancelada')),
+    estado TEXT NOT NULL DEFAULT 'Abierta' CHECK (estado IN ('Abierta', 'En preparación', 'Servida', 'Cobrada', 'Cancelada')),
     pedido_id INTEGER,
     creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     cerrado_en TIMESTAMP,
@@ -126,6 +127,8 @@ CREATE INDEX IF NOT EXISTS idx_comandas_mesa_estado ON comandas(mesa, estado);
 CREATE INDEX IF NOT EXISTS idx_comandas_estado ON comandas(estado);
 
 -- 9. Tabla de Líneas de Comanda
+-- Modificado: incorpora 'estado' ('En preparación' / 'Servido' / 'Cancelado') y 'descontado_stock'
+-- para garantizar que el stock se descuenta en el momento de servir y no se duplique al cobrar.
 CREATE TABLE IF NOT EXISTS comanda_detalles (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     comanda_id INTEGER NOT NULL,
@@ -134,12 +137,16 @@ CREATE TABLE IF NOT EXISTS comanda_detalles (
     precio_unitario REAL NOT NULL CHECK (precio_unitario >= 0),
     subtotal REAL NOT NULL CHECK (subtotal >= 0),
     notas TEXT,
+    estado TEXT NOT NULL DEFAULT 'En preparación' CHECK (estado IN ('En preparación', 'Servido', 'Cancelado')),
+    descontado_stock INTEGER NOT NULL DEFAULT 0 CHECK (descontado_stock IN (0, 1)),
     creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    servido_en TIMESTAMP,
     FOREIGN KEY (comanda_id) REFERENCES comandas(id) ON DELETE CASCADE,
     FOREIGN KEY (producto_id) REFERENCES productos(id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_comanda_detalles_comanda_id ON comanda_detalles(comanda_id);
+CREATE INDEX IF NOT EXISTS idx_comanda_detalles_estado ON comanda_detalles(estado);
 
 -- Semillas iniciales por defecto (si no existen)
 INSERT OR IGNORE INTO configuracion (clave, valor, descripcion) VALUES

@@ -115,6 +115,18 @@ const API = {
     return await res.json();
   },
 
+  async getAuditReport(fecha = '') {
+    const params = fecha ? `?fecha=${fecha}` : '';
+    const res = await fetch(`/api/caja/auditoria-jornada${params}`);
+    if (!res.ok) throw new Error('Error al consultar auditoría de ventas');
+    return await res.json();
+  },
+
+  getDownloadAuditReportUrl(fecha = '') {
+    const params = fecha ? `?fecha=${fecha}` : '';
+    return `/api/caja/descargar-informe-md${params}`;
+  },
+
   async closeRegister(fecha = '') {
     const params = fecha ? `?fecha=${fecha}` : '';
     const res = await fetch(`/api/caja/cerrar${params}`, { method: 'POST' });
@@ -275,8 +287,34 @@ const API = {
     return await res.json();
   },
 
-  async removeComandaItem(comandaId, detalleId) {
-    const res = await fetch(`/api/comandas/${comandaId}/items/${detalleId}`, { method: 'DELETE' });
+  async serveComanda(comandaId) {
+    const res = await fetch(`/api/comandas/${comandaId}/servir`, { method: 'POST' });
+    if (res.status === 409) {
+      const err = await res.json();
+      throw new Error(err.detail || 'Stock insuficiente para servir todos los productos.');
+    }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Error al marcar comanda como servida');
+    }
+    return await res.json();
+  },
+
+  async serveComandaItem(comandaId, detalleId) {
+    const res = await fetch(`/api/comandas/${comandaId}/items/${detalleId}/servir`, { method: 'POST' });
+    if (res.status === 409) {
+      const err = await res.json();
+      throw new Error(err.detail || 'Stock insuficiente para servir este producto.');
+    }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Error al marcar ítem como servido');
+    }
+    return await res.json();
+  },
+
+  async removeComandaItem(comandaId, detalleId, restaurarStock = false) {
+    const res = await fetch(`/api/comandas/${comandaId}/items/${detalleId}?restaurar_stock=${restaurarStock}`, { method: 'DELETE' });
     if (!res.ok) throw new Error('Error al remover producto de la comanda');
     return await res.json();
   },
@@ -298,8 +336,8 @@ const API = {
     return await res.json();
   },
 
-  async cancelComanda(comandaId) {
-    const res = await fetch(`/api/comandas/${comandaId}/cancelar`, { method: 'POST' });
+  async cancelComanda(comandaId, restaurarStock = false) {
+    const res = await fetch(`/api/comandas/${comandaId}/cancelar?restaurar_stock=${restaurarStock}`, { method: 'POST' });
     if (!res.ok) throw new Error('Error al cancelar comanda');
     return await res.json();
   }

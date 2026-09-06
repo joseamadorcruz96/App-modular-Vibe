@@ -124,9 +124,12 @@
               </button>
               
               <!-- Botones exclusivos para mesas de salón -->
-              <div id="mesa-actions-group" style="display: none; gap: 0.5rem;">
+              <div id="mesa-actions-group" style="display: none; gap: 0.5rem; flex-wrap: wrap;">
                 <button class="table-pill-btn" id="btn-cargar-a-mesa" style="flex: 1; padding: 0.6rem; border-color: var(--accent-gold); color: var(--accent-gold); font-weight: 700;">
                   📝 Enviar a Mesa
+                </button>
+                <button class="table-pill-btn" id="btn-servir-mesa-cmd" style="padding: 0.6rem; border-color: #10b981; color: #10b981; font-weight: 700;" title="Marcar todos los productos como servidos y descontar existencias">
+                  🍽️ Marcar Servido
                 </button>
                 <button class="table-pill-btn" id="btn-cancelar-mesa-cmd" style="padding: 0.6rem; border-color: var(--danger); color: var(--danger); font-weight: 700;">
                   ❌ Cancelar
@@ -242,9 +245,12 @@
             <h2 style="font-size: 1.35rem; font-weight: 800;">Cierre de Caja & Reportes del Día</h2>
             <p style="color: var(--text-muted); font-size: 0.85rem;">Consolidado de ventas, desglose de ingresos y respaldos automáticos.</p>
           </div>
-          <div style="display: flex; gap: 0.75rem;">
+          <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+            <button class="table-pill-btn" style="background: var(--bg-card); color: #60a5fa; border-color: #3b82f6;" id="btn-descargar-informe-md">
+              📥 Exportar Markdown (.md)
+            </button>
             <button class="table-pill-btn" style="background: var(--bg-card); color: var(--accent-cream); border-color: var(--border-subtle);" id="btn-imprimir-reporte-dia">
-              🖨️ Imprimir Reporte
+              🖨️ Imprimir / PDF
             </button>
             <button class="btn-checkout" style="width: auto; padding: 0.6rem 1.2rem; min-height: auto; font-size: 0.9rem; background: linear-gradient(135deg, #10b981, #059669);" id="btn-ejecutar-cierre">
               🔒 Cerrar Caja & Backup
@@ -285,6 +291,35 @@
           <h3 style="font-size: 1.05rem; font-weight: 700; margin-bottom: 1rem;">🏆 Productos Más Vendidos Hoy</h3>
           <div id="caja-top-productos-list" style="display: flex; flex-direction: column; gap: 0.75rem;">
             <!-- Renderizado dinámico desde caja.js -->
+          </div>
+        </div>
+
+        <!-- Tabla Completa de Auditoría de Comandas y Ventas del Día -->
+        <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 1.25rem; margin-top: 1.25rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
+            <div>
+              <h3 style="font-size: 1.05rem; font-weight: 700;">📊 Auditoría Detallada de Ventas y Comandas</h3>
+              <p style="color: var(--text-muted); font-size: 0.8rem;">Registro exhaustivo de comandas, mesas, productos servidos y medios de pago de la jornada.</p>
+            </div>
+          </div>
+          <div class="data-table-wrapper">
+            <table class="data-table" id="caja-auditoria-table">
+              <thead>
+                <tr>
+                  <th>HORA</th>
+                  <th>TICKET</th>
+                  <th>COMANDA</th>
+                  <th>MESA</th>
+                  <th>CLIENTE</th>
+                  <th>MEDIO PAGO</th>
+                  <th>TOTAL</th>
+                  <th>PRODUCTOS SERVIDOS</th>
+                </tr>
+              </thead>
+              <tbody id="caja-auditoria-body">
+                <!-- Renderizado dinámico desde caja.js -->
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -483,13 +518,13 @@
             <div style="display: flex; gap: 0.5rem; align-items: flex-end; flex-wrap: wrap; margin-bottom: 0.75rem;">
               <div style="flex: 2; min-width: 140px;">
                 <label style="font-size: 0.75rem; color: var(--text-muted);">Insumo:</label>
-                <select id="new-prod-recipe-insumo-select" style="width: 100%; padding: 0.4rem; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); color: #fff; font-size: 0.85rem;">
+                <select id="new-prod-recipe-insumo-select" disabled style="width: 100%; padding: 0.4rem; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); color: #fff; font-size: 0.85rem;">
                   <!-- Insumos cargados dinámicamente -->
                 </select>
               </div>
               <div style="flex: 1; min-width: 80px;">
                 <label style="font-size: 0.75rem; color: var(--text-muted);">Cantidad:</label>
-                <input type="number" id="new-prod-recipe-cant-input" step="0.1" min="0.01" value="10" style="width: 100%; padding: 0.4rem; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); color: #fff; font-size: 0.85rem;">
+                <input type="number" id="new-prod-recipe-cant-input" step="any" min="0" value="10" disabled style="width: 100%; padding: 0.4rem; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); color: #fff; font-size: 0.85rem;">
               </div>
               <button type="button" class="btn-checkout" onclick="Inventario.addNewProductIngredient()" style="width: auto; min-height: auto; padding: 0.45rem 0.85rem; font-size: 0.8rem;">
                 ➕ Añadir
@@ -617,13 +652,50 @@
     </div>
   </div>
 
+  <!-- Modal de Cancelación Rápida de Comanda: Merma vs Restaurar Inventario -->
+  <div class="modal-backdrop" id="modal-cancelar-comanda">
+    <div class="modal-window" style="max-width: 480px;">
+      <div class="modal-header">
+        <h3 class="modal-title">Anular Comanda</h3>
+        <button class="modal-close-btn" onclick="TPV.closeCancelarModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: var(--radius-sm); padding: 0.85rem; margin-bottom: 1rem;">
+          <strong style="color: #ef4444; display: block; margin-bottom: 0.25rem;">⚠️ Comanda con productos preparados/servidos</strong>
+          <span style="font-size: 0.85rem; color: var(--text-muted);">
+            Por naturaleza higiénico-sanitaria, los alimentos y bebidas servidos se consideran merma. Seleccione cómo asentar este movimiento:
+          </span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+          <button class="btn-checkout" style="background: linear-gradient(135deg, #ef4444, #b91c1c); min-height: auto; padding: 0.85rem; text-align: left; justify-content: flex-start;" onclick="TPV.ejecutarCancelarComanda(false)">
+            <span style="font-size: 1.25rem; margin-right: 0.5rem;">🗑️</span>
+            <div>
+              <div style="font-weight: 700;">Anular como Merma / Desperdicio</div>
+              <div style="font-size: 0.75rem; opacity: 0.85;">El stock permanece descontado y la mesa se libera.</div>
+            </div>
+          </button>
+          <button class="table-pill-btn" style="border-color: #3b82f6; color: #60a5fa; padding: 0.85rem; text-align: left; justify-content: flex-start; display: flex;" onclick="TPV.ejecutarCancelarComanda(true)">
+            <span style="font-size: 1.25rem; margin-right: 0.5rem;">🔄</span>
+            <div>
+              <div style="font-weight: 700;">Restaurar Existencias al Inventario</div>
+              <div style="font-size: 0.75rem; opacity: 0.85;">Reintegra las unidades y recetas a productos e insumos.</div>
+            </div>
+          </button>
+          <button class="table-pill-btn" style="border-color: var(--border-subtle); color: var(--text-muted); padding: 0.6rem; text-align: center; justify-content: center;" onclick="TPV.closeCancelarModal()">
+            Cancelar y Volver
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- ====================================================================
        MODAL 5: REPORTE DE CIERRE IMPRIMIBLE
        ==================================================================== -->
   <div class="modal-backdrop" id="modal-reporte-cierre-print">
-    <div class="modal-window" style="max-width: 460px;">
+    <div class="modal-window" style="max-width: 760px;">
       <div class="modal-header no-print">
-        <h3 class="modal-title">Reporte de Cierre de Caja</h3>
+        <h3 class="modal-title">Reporte de Cierre de Caja y Auditoría</h3>
         <button class="modal-close-btn" onclick="Caja.closeReporteModal()">✕</button>
       </div>
       <div class="modal-body">
@@ -706,7 +778,7 @@
           </div>
           <div style="flex: 1; min-width: 100px;">
             <label style="font-size: 0.75rem; color: var(--text-muted);" id="recipe-add-cant-label">Cantidad:</label>
-            <input type="number" id="recipe-add-cantidad-input" step="0.1" min="0.01" value="10" style="width: 100%; padding: 0.5rem; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); color: #fff; font-size: 0.85rem;">
+            <input type="number" id="recipe-add-cantidad-input" step="any" min="0" value="10" style="width: 100%; padding: 0.5rem; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); color: #fff; font-size: 0.85rem;">
           </div>
           <button type="button" class="btn-checkout" onclick="Inventario.addIngredientToRecipeList()" style="width: auto; min-height: auto; padding: 0.55rem 1rem; font-size: 0.85rem;">
             ➕ Agregar
