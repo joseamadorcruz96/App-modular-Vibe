@@ -9,9 +9,10 @@ import sqlite3
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Query, status
 
-from app.database import get_db
+from app.database import get_db, atomic_transaction
 from app.models.schemas import (
-    ProductoResponse, ProductoCreate, ProductoUpdate, ProductoReabastecer
+    ProductoResponse, ProductoCreate, ProductoUpdate, ProductoReabastecer,
+    ProductoBulkRequest, ProductoBulkResponse
 )
 from app.services.product_service import ProductoService
 
@@ -43,6 +44,23 @@ def obtener_producto(producto_id: int) -> dict:
                 detail=f"Producto con ID {producto_id} no encontrado."
             )
         return prod
+
+
+@router.post("/bulk", response_model=ProductoBulkResponse, status_code=status.HTTP_200_OK, summary="Importar o reabastecer productos masivamente con IA")
+def importar_productos_bulk(datos: ProductoBulkRequest) -> dict:
+    """
+    Importa un lote de productos procesados mediante IA o archivo.
+    Si un producto ya existe, suma las existencias al stock actual o lo omite según el modo configurado.
+    La operación se ejecuta en una transacción atómica protegida con rollback.
+    """
+    try:
+        with atomic_transaction() as conn:
+            return ProductoService.importar_lote_productos(conn, datos)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Error durante el procesamiento masivo del lote: {str(e)}"
+        )
 
 
 @router.post("", response_model=ProductoResponse, status_code=status.HTTP_201_CREATED, summary="Registrar nuevo producto")

@@ -19,6 +19,7 @@ const App = {
     // Inicializar submódulos
     if (window.TPV) window.TPV.init();
     if (window.Inventario) window.Inventario.init();
+    if (window.CargaIA) window.CargaIA.init();
     if (window.Caja) window.Caja.init();
     if (window.Configuracion) window.Configuracion.init();
   },
@@ -57,6 +58,7 @@ const App = {
     // Refrescar datos según la vista activa
     if (viewId === 'tpv' && window.TPV) window.TPV.refresh();
     if (viewId === 'inventario' && window.Inventario) window.Inventario.load();
+    if (viewId === 'carga-ia' && window.CargaIA) window.CargaIA.load();
     if (viewId === 'caja' && window.Caja) window.Caja.loadSummary();
     if (viewId === 'config' && window.Configuracion) window.Configuracion.load();
   },

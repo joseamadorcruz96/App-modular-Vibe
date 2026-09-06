@@ -79,6 +79,19 @@ const API = {
     return await res.json();
   },
 
+  async bulkImportProducts(data) {
+    const res = await fetch('/api/productos/bulk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Error al importar productos en lote');
+    }
+    return await res.json();
+  },
+
   // Pedidos y Checkout Atómico
   async checkout(pedidoData) {
     const res = await fetch('/api/pedidos', {

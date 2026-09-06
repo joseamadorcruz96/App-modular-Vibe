@@ -86,6 +86,53 @@ class ProductoResponse(ProductoBase):
     actualizado_en: Optional[str] = None
 
 
+class ProductoBulkItem(BaseModel):
+    """Ítem individual para la carga masiva/automática con IA."""
+    codigo: Optional[str] = Field(None, max_length=20, description="Código único de producto (opcional, autogenerado si no se indica)")
+    nombre: str = Field(..., min_length=2, max_length=100, description="Nombre legible del producto")
+    stock: int = Field(0, ge=0, description="Cantidad de unidades a ingresar al inventario")
+    costo_unitario: float = Field(0.0, ge=0.0, description="Costo unitario")
+    precio_venta: float = Field(0.0, ge=0.0, description="Precio de venta a público")
+
+    @field_validator("codigo")
+    @classmethod
+    def normalizar_codigo(cls, v: Optional[str]) -> Optional[str]:
+        return v.strip().upper() if v and v.strip() else None
+
+    @field_validator("nombre")
+    @classmethod
+    def sanitizar_nombre(cls, v: str) -> str:
+        return v.strip()
+
+
+class ProductoBulkRequest(BaseModel):
+    """Solicitud de carga masiva de productos vía IA o lote."""
+    modo: str = Field("sumar_stock", description="Estrategia ante existentes: 'sumar_stock' o 'solo_nuevos'")
+    productos: List[ProductoBulkItem] = Field(..., min_length=1, description="Lista de productos a importar")
+
+
+class ProductoBulkDetalle(BaseModel):
+    """Detalle de resultado por cada producto procesado."""
+    codigo: str
+    nombre: str
+    accion: str  # 'creado' | 'actualizado' | 'ignorado' | 'error'
+    stock_previo: Optional[int] = None
+    stock_final: Optional[int] = None
+    costo_unitario: Optional[float] = None
+    precio_venta: Optional[float] = None
+    mensaje: Optional[str] = None
+
+
+class ProductoBulkResponse(BaseModel):
+    """Reporte de consolidación del procesamiento masivo."""
+    total_recibidos: int
+    total_creados: int
+    total_actualizados: int
+    total_ignorados: int
+    detalles: List[ProductoBulkDetalle]
+
+
+
 # ==============================================================================
 # Esquemas para Toma de Pedidos, Checkout y Tickets
 # ==============================================================================

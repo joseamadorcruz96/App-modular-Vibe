@@ -30,6 +30,10 @@
         <span>📦</span>
         <span>Inventario & Stock</span>
       </button>
+      <button class="tab-btn" data-view="carga-ia">
+        <span>🤖</span>
+        <span>Carga con IA</span>
+      </button>
       <button class="tab-btn" data-view="caja">
         <span>📊</span>
         <span>Cierre de Caja</span>
@@ -250,6 +254,175 @@
               </tbody>
             </table>
           </div>
+        </div>
+
+      </div>
+    </section>
+
+
+    <!-- ====================================================================
+         VISTA 2.5: CARGA AUTOMÁTICA CON INTELIGENCIA ARTIFICIAL
+         ==================================================================== -->
+    <section id="view-carga-ia" class="view-section">
+      <div class="inventory-panel">
+
+        <!-- Cabecera Principal de la Sección -->
+        <div class="panel-header-actions">
+          <div>
+            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+              <span style="font-size: 1.5rem;">🤖</span>
+              <h2 style="font-size: 1.35rem; font-weight: 800;">Carga Automática de Productos con IA</h2>
+              <span class="badge-stock-normal"
+                style="background: rgba(217, 119, 6, 0.2); color: var(--accent-gold); border: 1px solid rgba(217, 119, 6, 0.4); font-size: 0.75rem; padding: 0.2rem 0.6rem; border-radius: var(--radius-full);">
+                FÁCIL Y SIN CÓDIGO
+              </span>
+            </div>
+            <p style="color: var(--text-muted); font-size: 0.85rem;">
+              Ingresa los productos nuevos o el stock recibido del día en segundos usando ChatGPT, Claude o Gemini.
+            </p>
+          </div>
+          <div style="display: flex; gap: 0.75rem;">
+            <button class="table-pill-btn"
+              style="background: var(--bg-card); color: var(--text-muted); border-color: var(--border-subtle);"
+              id="btn-limpiar-carga-ia">
+              🧹 Limpiar Pantalla
+            </button>
+          </div>
+        </div>
+
+        <!-- Guía en Pasos Visuales -->
+        <div class="ia-steps-grid">
+
+          <!-- PASO 1: Copiar Prompt -->
+          <div class="ia-step-card">
+            <div class="ia-step-badge">PASO 1</div>
+            <h3 class="ia-step-title">📋 Copia las instrucciones para tu IA</h3>
+            <p class="ia-step-desc">
+              Copia esta instrucción con 1 clic y pégala en tu IA favorita (ChatGPT, Claude, Gemini o WhatsApp).
+            </p>
+
+            <div class="ia-prompt-box">
+              <pre id="texto-prompt-preview">Actúa como un asistente administrativo experto para "Coffee SoKa"...
+Te proporcionaré una lista de productos que llegaron hoy...
+Devuélveme ÚNICAMENTE una tabla Markdown con:
+| Codigo | Nombre | Stock | Costo | Precio |</pre>
+            </div>
+
+            <button class="btn-checkout" id="btn-copiar-prompt-ia"
+              style="margin-top: 1rem; width: 100%; font-size: 0.95rem; background: linear-gradient(135deg, var(--bg-card-hover), var(--bg-card)); border: 1px solid var(--border-active);">
+              <span>📋</span>
+              <span>Copiar Instrucciones para la IA</span>
+            </button>
+            <div style="font-size: 0.78rem; color: var(--text-dim); text-align: center; margin-top: 0.5rem;">
+              💡 <em>En la IA, adjunta la foto de tu factura, audio o escribe tu lista informal.</em>
+            </div>
+          </div>
+
+          <!-- PASO 2: Pegar o Subir Archivo -->
+          <div class="ia-step-card">
+            <div class="ia-step-badge">PASO 2</div>
+            <h3 class="ia-step-title">📥 Pega la respuesta o sube el archivo</h3>
+            <p class="ia-step-desc">
+              Pega aquí la tabla que te entregó la IA o arrastra tu archivo <code>.md</code> o <code>.txt</code>.
+            </p>
+
+            <!-- Zona Drag and Drop -->
+            <div class="ia-dropzone" id="dropzone-ia">
+              <div class="ia-dropzone-icon">📁</div>
+              <div style="font-weight: 600; font-size: 0.85rem; color: var(--accent-cream);">
+                Arrastra tu archivo .md o .txt aquí
+              </div>
+              <div style="font-size: 0.75rem; color: var(--text-dim); margin-top: 2px;">
+                o haz clic aquí para seleccionarlo
+              </div>
+              <input type="file" id="file-input-ia" accept=".md,.txt,.csv" style="display: none;">
+            </div>
+
+            <div style="text-align: center; margin: 0.6rem 0; font-size: 0.8rem; color: var(--text-dim); font-weight: 600;">
+              — O PEGA EL TEXTO DIRECTAMENTE AQUÍ —
+            </div>
+
+            <!-- Textarea manual -->
+            <textarea id="textarea-ia" class="ia-textarea" placeholder="Pega aquí la tabla Markdown devuelta por la IA...
+Ejemplo:
+| Codigo | Nombre | Stock | Costo | Precio |
+| MED01 | Medialuna Manteca | 24 | 450 | 1200 |
+| TAR02 | Tarta de Manzana | 8 | 800 | 2500 |
+| CAF05 | Café Grano Colombia 250g | 10 | 3500 | 7000 |"></textarea>
+
+            <button class="btn-checkout" id="btn-procesar-texto-ia"
+              style="margin-top: 0.75rem; width: 100%; background: linear-gradient(135deg, var(--primary), var(--accent-gold)); font-size: 0.95rem; font-weight: 700;">
+              <span>🔍</span>
+              <span>Interpretar y Previsualizar</span>
+            </button>
+          </div>
+
+        </div>
+
+        <!-- PASO 3: Previsualización de Productos Detectados -->
+        <div id="seccion-previsualizacion-ia" style="display: none; margin-top: 1.75rem;">
+
+          <div
+            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
+            <div>
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <div class="ia-step-badge" style="background: var(--success); color: #fff;">PASO 3</div>
+                <h3 style="font-size: 1.2rem; font-weight: 800;">Revisión y Previsualización</h3>
+              </div>
+              <p style="color: var(--text-muted); font-size: 0.85rem;">
+                Revisa los productos detectados antes de incorporarlos a la base de datos.
+              </p>
+            </div>
+
+            <div
+              style="display: flex; align-items: center; gap: 0.75rem; background: var(--bg-surface); padding: 0.5rem 1rem; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle);">
+              <label for="select-modo-carga-ia"
+                style="font-size: 0.85rem; color: var(--text-muted); white-space: nowrap;">
+                Si el producto ya existe en el catálogo:
+              </label>
+              <select id="select-modo-carga-ia"
+                style="background: var(--bg-card); color: var(--accent-cream); border: 1px solid var(--border-subtle); padding: 0.4rem 0.75rem; border-radius: var(--radius-sm); font-size: 0.85rem; outline: none; cursor: pointer;">
+                <option value="sumar_stock" selected>➕ Sumar al stock actual (Recomendado)</option>
+                <option value="solo_nuevos">🚫 Omitir existentes (Solo nuevos)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Tarjetas de resumen métrico -->
+          <div class="stats-grid" id="stats-previsualizacion-ia" style="margin-bottom: 1rem;">
+            <!-- Renderizado dinámico desde carga_ia.js -->
+          </div>
+
+          <!-- Tabla de Previsualización -->
+          <div class="data-table-wrapper">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th style="text-align: center;">TIPO</th>
+                  <th>CÓDIGO</th>
+                  <th>PRODUCTO</th>
+                  <th style="text-align: right;">CANTIDAD A INGRESAR</th>
+                  <th style="text-align: right;">COSTO UNIT.</th>
+                  <th style="text-align: right;">PRECIO VENTA</th>
+                  <th style="text-align: center;">MARGEN</th>
+                  <th style="text-align: center;">ACCIÓN</th>
+                </tr>
+              </thead>
+              <tbody id="tabla-previsualizacion-ia-body">
+                <!-- Filas renderizadas dinámicamente -->
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Botón de Confirmación Principal -->
+          <div style="margin-top: 1.25rem; display: flex; justify-content: flex-end; gap: 1rem;">
+            <button class="btn-checkout" id="btn-confirmar-carga-ia"
+              style="width: auto; min-width: 280px; padding: 0.9rem 2rem; font-size: 1.05rem; background: linear-gradient(135deg, #10b981, #059669); box-shadow: 0 4px 18px rgba(16, 185, 129, 0.4);">
+              <span>🚀</span>
+              <span>Confirmar e Ingresar al Inventario</span>
+            </button>
+          </div>
+
         </div>
 
       </div>
@@ -1043,6 +1216,7 @@
   <script src="/static/js/api.js"></script>
   <script src="/static/js/tpv.js"></script>
   <script src="/static/js/inventario.js"></script>
+  <script src="/static/js/carga_ia.js"></script>
   <script src="/static/js/caja.js"></script>
   <script src="/static/js/configuracion.js"></script>
   <script src="/static/js/app.js"></script>

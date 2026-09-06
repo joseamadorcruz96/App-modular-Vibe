@@ -6,8 +6,13 @@ Encapsula todas las operaciones SQL sobre la tabla `productos`, garantizando con
 """
 
 import sqlite3
-from typing import List, Optional, Dict, Any
-from app.models.schemas import ProductoCreate, ProductoUpdate
+import unicodedata
+import re
+from typing import List, Optional, Dict, Any, Set
+from app.models.schemas import (
+    ProductoCreate, ProductoUpdate,
+    ProductoBulkRequest, ProductoBulkResponse, ProductoBulkDetalle
+)
 
 
 class ProductoService:
@@ -300,3 +305,169 @@ class ProductoService:
             """
         )
         return cursor.rowcount
+
+    @staticmethod
+    def _generar_codigo_disponible(conn: sqlite3.Connection, nombre: str, usados: Set[str]) -> str:
+        """
+        Genera un código corto único para un producto a partir de su nombre (ej: MED01, CAF02).
+        """
+        nombre_limpio = unicodedata.normalize('NFKD', nombre).encode('ASCII', 'ignore').decode('utf-8')
+        letras = re.sub(r'[^A-Za-z0-9]', '', nombre_limpio).upper()
+        prefijo = letras[:3] if len(letras) >= 3 else (letras + "PRD")[:3]
+        if not prefijo:
+            prefijo = "PRD"
+
+        cursor = conn.cursor()
+        cursor.execute("SELECT codigo FROM productos WHERE codigo LIKE ?;", (f"{prefijo}%",))
+        existentes = {row[0].upper() for row in cursor.fetchall()}
+        existentes.update(usados)
+
+        num = 1
+        while True:
+            candidato = f"{prefijo}{num:02d}"
+            if candidato not in existentes:
+                usados.add(candidato)
+                return candidato
+            num += 1
+
+    @staticmethod
+    def importar_lote_productos(
+        conn: sqlite3.Connection,
+        datos: ProductoBulkRequest
+    ) -> Dict[str, Any]:
+        """
+        Procesa una carga masiva de productos (creación / reabastecimiento inteligente)
+        provenientes del módulo de IA o importación en lote.
+
+        Parámetros:
+            conn (sqlite3.Connection): Conexión activa.
+            datos (ProductoBulkRequest): Lote de productos e indicación de modo.
+
+        Retorna:
+            Dict[str, Any]: Resumen y detalle consolidado de la importación.
+        """
+        cursor = conn.cursor()
+        codigos_usados: Set[str] = set()
+        detalles = []
+        total_creados = 0
+        total_actualizados = 0
+        total_ignorados = 0
+
+        for item in datos.productos:
+            # 1. Buscar si ya existe por código (si vino informado) o por coincidencia exacta de nombre
+            prod_existente = None
+
+            if item.codigo and item.codigo.strip():
+                cursor.execute(
+                    "SELECT id, codigo, nombre, stock_inicial, stock_actual, costo_unitario, precio_venta, activo FROM productos WHERE UPPER(codigo) = ?;",
+                    (item.codigo.strip().upper(),)
+                )
+                prod_existente = cursor.fetchone()
+
+            if not prod_existente:
+                cursor.execute(
+                    "SELECT id, codigo, nombre, stock_inicial, stock_actual, costo_unitario, precio_venta, activo FROM productos WHERE LOWER(TRIM(nombre)) = LOWER(TRIM(?));",
+                    (item.nombre.strip(),)
+                )
+                prod_existente = cursor.fetchone()
+
+            if prod_existente:
+                p_id = prod_existente["id"]
+                p_codigo = prod_existente["codigo"]
+                p_nombre = prod_existente["nombre"]
+                p_stock_actual = prod_existente["stock_actual"]
+                p_stock_inicial = prod_existente["stock_inicial"]
+                p_costo = prod_existente["costo_unitario"]
+                p_precio = prod_existente["precio_venta"]
+
+                codigos_usados.add(p_codigo.upper())
+
+                if datos.modo == "sumar_stock":
+                    nuevo_stock_actual = p_stock_actual + item.stock
+                    nuevo_stock_inicial = p_stock_inicial + item.stock
+                    nuevo_costo = item.costo_unitario if item.costo_unitario > 0 else p_costo
+                    nuevo_precio = item.precio_venta if item.precio_venta > 0 else p_precio
+
+                    cursor.execute(
+                        """
+                        UPDATE productos
+                        SET stock_actual = ?,
+                            stock_inicial = ?,
+                            costo_unitario = ?,
+                            precio_venta = ?,
+                            activo = 1,
+                            actualizado_en = CURRENT_TIMESTAMP
+                        WHERE id = ?;
+                        """,
+                        (nuevo_stock_actual, nuevo_stock_inicial, nuevo_costo, nuevo_precio, p_id)
+                    )
+                    total_actualizados += 1
+                    detalles.append({
+                        "codigo": p_codigo,
+                        "nombre": p_nombre,
+                        "accion": "actualizado",
+                        "stock_previo": p_stock_actual,
+                        "stock_final": nuevo_stock_actual,
+                        "costo_unitario": nuevo_costo,
+                        "precio_venta": nuevo_precio,
+                        "mensaje": f"Stock sumado (+{item.stock}). Stock actual: {nuevo_stock_actual}."
+                    })
+                else:
+                    total_ignorados += 1
+                    detalles.append({
+                        "codigo": p_codigo,
+                        "nombre": p_nombre,
+                        "accion": "ignorado",
+                        "stock_previo": p_stock_actual,
+                        "stock_final": p_stock_actual,
+                        "costo_unitario": p_costo,
+                        "precio_venta": p_precio,
+                        "mensaje": "Producto existente omitido según la directiva configurada."
+                    })
+            else:
+                # Producto nuevo
+                codigo_asignado = item.codigo.strip().upper() if (item.codigo and item.codigo.strip()) else None
+                if not codigo_asignado or codigo_asignado in codigos_usados:
+                    codigo_asignado = ProductoService._generar_codigo_disponible(conn, item.nombre, codigos_usados)
+                else:
+                    # Verificar si existe en DB
+                    cursor.execute("SELECT id FROM productos WHERE UPPER(codigo) = ?;", (codigo_asignado,))
+                    if cursor.fetchone():
+                        codigo_asignado = ProductoService._generar_codigo_disponible(conn, item.nombre, codigos_usados)
+
+                codigos_usados.add(codigo_asignado.upper())
+
+                cursor.execute(
+                    """
+                    INSERT INTO productos (codigo, nombre, stock_inicial, stock_actual, costo_unitario, precio_venta, activo)
+                    VALUES (?, ?, ?, ?, ?, ?, 1);
+                    """,
+                    (
+                        codigo_asignado,
+                        item.nombre.strip(),
+                        item.stock,
+                        item.stock,
+                        item.costo_unitario,
+                        item.precio_venta
+                    )
+                )
+                total_creados += 1
+                detalles.append({
+                    "codigo": codigo_asignado,
+                    "nombre": item.nombre.strip(),
+                    "accion": "creado",
+                    "stock_previo": 0,
+                    "stock_final": item.stock,
+                    "costo_unitario": item.costo_unitario,
+                    "precio_venta": item.precio_venta,
+                    "mensaje": f"Nuevo producto creado con código {codigo_asignado} y {item.stock} unidades."
+                })
+
+        return {
+            "total_recibidos": len(datos.productos),
+            "total_creados": total_creados,
+            "total_actualizados": total_actualizados,
+            "total_ignorados": total_ignorados,
+            "detalles": detalles
+        }
+
