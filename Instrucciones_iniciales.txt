@@ -1,0 +1,84 @@
+================================================================================
+CONTEXTO Y OBJETIVO DEL PROYECTO
+================================================================================
+Actúa como un desarrollador Senior Full-Stack en Python. 
+Vas a construir una aplicación local, liviana y portable de Punto de Venta (TPV), 
+gestión de comandas por mesas, control de inventario y reporte imprimible para una 
+cafetería / stand gastronómico ("CoffeePOS").
+
+El sistema debe estar pensado para ejecutarse de forma local y poder ser empaquetado 
+en un ejecutable portable (PyInstaller) para Windows, sin exigir que el usuario final 
+instale dependencias de desarrollo.
+
+================================================================================
+REGLAS DE SEGURIDAD Y ARQUITECTURA CRÍTICAS
+================================================================================
+1. Transaccionalidad ACID:
+   - Toda la lógica financiera y de stock se calcula en el backend, NUNCA en el cliente.
+   - El cobro de un pedido debe envolverse en una transacción segura: si no hay stock 
+     suficiente de algún producto del ticket, se rechaza la operación completa.
+2. Inyecciones SQL:
+   - Uso obligatorio de consultas SQL parametrizadas nativas (placeholders `?`) en SQLite.
+   - Prohibida la interpolación de cadenas (f-strings) en consultas a base de datos.
+3. Resistencia a fallos de SQLite:
+   - Habilitar el modo WAL: `PRAGMA journal_mode=WAL;`
+   - Configurar `timeout=10.0` para evitar errores por bloqueo de concurrencia.
+4. Respaldo automático:
+   - Al ejecutar un cierre de caja o acción crítica, crear una copia timestamped 
+     del archivo `.db` en una subcarpeta `/backups`.
+
+================================================================================
+STACK TECNOLÓGICO Y ENTORNO
+================================================================================
+- Backend: Python 3.11+ con FastAPI + Uvicorn (o Flask).
+- Base de Datos: SQLite3 (archivo `data/cafeteria.db`).
+- Frontend: HTML5 semántico + Tailwind CSS (vía CDN o empaquetado local) + JavaScript vanilla.
+  * Interfaz optimizada para pantallas táctiles y tablets.
+  * Sin necesidad de Node.js o build tools pesados.
+- Reportes e Impresión:
+  * Plantilla HTML de ticket y reporte de cierre con estilos `@media print` 
+    adaptados para impresión estándar o tickets térmicos (58mm/80mm).
+
+================================================================================
+MODELO DE DATOS REQUERIDO (SQLITE)
+================================================================================
+- Tabla `productos`:
+  * id, codigo (UNIQUE), nombre, stock_inicial, stock_actual, costo_unitario, precio_venta, activo (1/0).
+- Tabla `configuracion`:
+  * mesas_activas (entero editable desde la UI para habilitar de 1 a N mesas según el día).
+- Tabla `pedidos` (Cabecera):
+  * id, numero_ticket, fecha_hora, mesa (ej: "Mesa 1", "Barra / Para Llevar"), 
+    cliente, medio_pago (Efectivo, Débito, Crédito, Transferencia), total, estado.
+- Tabla `pedido_detalles` (Líneas del ticket):
+  * id, pedido_id, producto_id, cantidad, precio_unitario, subtotal.
+
+================================================================================
+FLUJO DE TRABAJO Y PANTALLAS OBLIGATORIAS
+================================================================================
+1. Pantalla TPV / Comandera (Pantalla Principal):
+   - Selector dinámico de mesas (se ajusta según el número configurado para hoy).
+   - Selector de productos con buscador rápido.
+   - Carrito / Ticket temporal multiproducto: permite agregar varios ítems, cambiar 
+     cantidades o eliminar productos antes de cobrar.
+   - Botón de cobro: confirma medio de pago, descuenta el stock atómicamente y emite el ticket.
+
+2. Pantalla Inventario & Reabastecimiento:
+   - Tabla de productos con alerta visual si stock <= 5 (Crítico).
+   - Formulario para crear nuevo producto (código, nombre, stock inicial, costo, precio).
+   - Formulario de reabastecimiento rápido: seleccionar producto existente y sumar unidades 
+     al stock actual y stock inicial.
+
+3. Módulo de Cierre de Caja y Reportes:
+   - Resumen del día: total recaudado, desglose por medio de pago, productos más vendidos.
+   - Botón "Imprimir Reporte del Día" que genera la vista lista para imprimir.
+
+4. Acciones Críticas:
+   - Reinicio de stock al valor inicial (con confirmación).
+   - Limpieza general total de datos (exigir escribir la palabra clave "borrar").
+
+================================================================================
+ENTREGA ESPERADA DEL AGENTE
+================================================================================
+Proporciona la estructura de carpetas limpia del proyecto, el archivo `requirements.txt`, 
+los scripts de base de datos, el backend con sus rutas API, los archivos HTML/JS de la 
+interfaz y un script `run.bat` para iniciar la aplicación con doble clic.

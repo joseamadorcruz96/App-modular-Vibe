@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>CoffeePOS - Terminal Punto de Venta & Gestión</title>
+  <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+
+  <!-- Encabezado / Navbar Superior -->
+  <header class="top-header no-print">
+    <div class="brand-wrapper">
+      <div class="brand-icon">☕</div>
+      <div>
+        <div class="brand-title">CoffeePOS</div>
+        <div class="brand-tag" id="header-local-name">Cargando Stand...</div>
+      </div>
+    </div>
+
+    <!-- Pestañas de Navegación -->
+    <nav class="nav-tabs">
+      <button class="tab-btn active" data-view="tpv">
+        <span>🛒</span>
+        <span>TPV / Comandera</span>
+      </button>
+      <button class="tab-btn" data-view="inventario">
+        <span>📦</span>
+        <span>Inventario & Stock</span>
+      </button>
+      <button class="tab-btn" data-view="caja">
+        <span>📊</span>
+        <span>Cierre de Caja</span>
+      </button>
+      <button class="tab-btn" data-view="config">
+        <span>⚙️</span>
+        <span>Ajustes</span>
+      </button>
+    </nav>
+
+    <!-- Estado y Reloj -->
+    <div class="header-meta">
+      <div class="badge-status">
+        <div class="pulse-dot"></div>
+        <span>LOCAL ACTIVO</span>
+      </div>
+      <div style="font-family: var(--font-mono); font-weight: 700; font-size: 0.95rem; color: var(--accent-gold);" id="header-clock">
+        00:00:00
+      </div>
+    </div>
+  </header>
+
+  <!-- Contenedor Principal de Vistas -->
+  <main class="main-content">
+
+    <!-- ====================================================================
+         VISTA 1: TPV & COMANDERA (Pantalla Principal)
+         ==================================================================== -->
+    <section id="view-tpv" class="view-section active">
+      <div class="tpv-grid">
+        
+        <!-- Columna Izquierda: Mesas y Catálogo -->
+        <div class="tpv-catalog-col">
+          <!-- Carrusel de Mesas Dinámicas -->
+          <div class="tables-carousel" id="tpv-tables-carousel">
+            <!-- Renderizado dinámico desde TPV.js -->
+          </div>
+
+          <!-- Barra de Búsqueda de Productos -->
+          <div class="catalog-toolbar">
+            <div class="search-input-box">
+              <span class="search-icon-pos">🔍</span>
+              <input type="text" id="tpv-search" placeholder="Buscar café, bollería o código (ej: CAF01)..." autocomplete="off">
+            </div>
+          </div>
+
+          <!-- Grilla Táctil de Productos -->
+          <div class="products-scrollable-grid" id="tpv-products-grid">
+            <!-- Renderizado dinámico desde TPV.js -->
+          </div>
+        </div>
+
+        <!-- Columna Derecha: Carrito / Ticket Temporal -->
+        <div class="tpv-cart-col">
+          <div class="cart-header">
+            <div class="cart-title">
+              <span>🧾 Comanda Activa</span>
+            </div>
+            <div class="cart-table-tag" id="cart-selected-table">Barra / Para Llevar</div>
+          </div>
+
+          <div class="cart-meta-bar">
+            <input type="text" id="checkout-cliente-input" placeholder="Nombre de cliente (opcional)..." value="Consumidor Final">
+          </div>
+
+          <!-- Lista de Ítems en el Carrito -->
+          <div class="cart-items-list" id="tpv-cart-items">
+            <!-- Renderizado dinámico desde TPV.js -->
+          </div>
+
+          <!-- Total y Botón de Cobro -->
+          <div class="cart-footer">
+            <div class="cart-total-row">
+              <span class="cart-total-label">Total a Pagar:</span>
+              <span class="cart-total-amount" id="tpv-cart-total">$0</span>
+            </div>
+            <button class="btn-checkout" id="btn-open-checkout" disabled>
+              <span>⚡</span>
+              <span>COBRAR TICKET</span>
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         VISTA 2: INVENTARIO & REABASTECIMIENTO
+         ==================================================================== -->
+    <section id="view-inventario" class="view-section">
+      <div class="inventory-panel">
+        <div class="panel-header-actions">
+          <div>
+            <h2 style="font-size: 1.35rem; font-weight: 800;">Control de Inventario</h2>
+            <p style="color: var(--text-muted); font-size: 0.85rem;">Monitoreo de existencias con alertas para stock crítico (≤ 5 unidades).</p>
+          </div>
+          <div style="display: flex; gap: 0.75rem;">
+            <input type="text" id="inv-search" placeholder="Filtrar inventario..." style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 0.6rem 1rem; color: #fff; font-size: 0.85rem; outline: none;">
+            <button class="btn-checkout" style="width: auto; padding: 0.6rem 1.2rem; min-height: auto; font-size: 0.9rem;" id="btn-open-new-product">
+              ➕ Nuevo Producto
+            </button>
+          </div>
+        </div>
+
+        <div class="data-table-wrapper">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>CÓDIGO</th>
+                <th>PRODUCTO</th>
+                <th>STOCK INICIAL</th>
+                <th>STOCK ACTUAL</th>
+                <th>COSTO UNIT.</th>
+                <th>PRECIO VENTA</th>
+                <th>ESTADO</th>
+                <th>ACCIÓN</th>
+              </tr>
+            </thead>
+            <tbody id="inv-table-body">
+              <!-- Renderizado dinámico desde inventario.js -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         VISTA 3: CIERRE DE CAJA & REPORTES
+         ==================================================================== -->
+    <section id="view-caja" class="view-section">
+      <div class="inventory-panel">
+        <div class="panel-header-actions">
+          <div>
+            <h2 style="font-size: 1.35rem; font-weight: 800;">Cierre de Caja & Reportes del Día</h2>
+            <p style="color: var(--text-muted); font-size: 0.85rem;">Consolidado de ventas, desglose de ingresos y respaldos automáticos.</p>
+          </div>
+          <div style="display: flex; gap: 0.75rem;">
+            <button class="table-pill-btn" style="background: var(--bg-card); color: var(--accent-cream); border-color: var(--border-subtle);" id="btn-imprimir-reporte-dia">
+              🖨️ Imprimir Reporte
+            </button>
+            <button class="btn-checkout" style="width: auto; padding: 0.6rem 1.2rem; min-height: auto; font-size: 0.9rem; background: linear-gradient(135deg, #10b981, #059669);" id="btn-ejecutar-cierre">
+              🔒 Cerrar Caja & Backup
+            </button>
+          </div>
+        </div>
+
+        <!-- Tarjetas de Estadísticas Diarias -->
+        <div class="stats-grid">
+          <div class="stat-card">
+            <span class="stat-label">Total Recaudado Hoy</span>
+            <span class="stat-value" id="stat-total-dia">$0</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Tickets Emitidos</span>
+            <span class="stat-value" id="stat-tickets-dia">0</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Efectivo</span>
+            <span class="stat-value" style="color: #34d399;" id="stat-efectivo-dia">$0</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Débito</span>
+            <span class="stat-value" style="color: #60a5fa;" id="stat-debito-dia">$0</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Crédito</span>
+            <span class="stat-value" style="color: #a78bfa;" id="stat-credito-dia">$0</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Transferencia</span>
+            <span class="stat-value" style="color: #fbbf24;" id="stat-transfer-dia">$0</span>
+          </div>
+        </div>
+
+        <!-- Ranking Top Productos -->
+        <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 1.25rem;">
+          <h3 style="font-size: 1.05rem; font-weight: 700; margin-bottom: 1rem;">🏆 Productos Más Vendidos Hoy</h3>
+          <div id="caja-top-productos-list" style="display: flex; flex-direction: column; gap: 0.75rem;">
+            <!-- Renderizado dinámico desde caja.js -->
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         VISTA 4: AJUSTES & MANTENIMIENTO
+         ==================================================================== -->
+    <section id="view-config" class="view-section">
+      <div class="inventory-panel" style="max-width: 900px; margin: 0 auto;">
+        <div>
+          <h2 style="font-size: 1.35rem; font-weight: 800;">Ajustes Operativos del Sistema</h2>
+          <p style="color: var(--text-muted); font-size: 0.85rem;">Configuración de mesas y mantenimiento de la base de datos local.</p>
+        </div>
+
+        <!-- Formulario de Configuración de Mesas -->
+        <form id="form-config-global" style="background: var(--bg-card); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--border-subtle); display: flex; flex-direction: column; gap: 1rem;">
+          <h3 style="font-size: 1rem; font-weight: 700;">⚙️ Parámetros del Local</h3>
+          
+          <div class="form-group">
+            <label for="cfg-nombre-input">Nombre del Stand / Cafetería:</label>
+            <input type="text" id="cfg-nombre-input" required>
+          </div>
+
+          <div class="form-group">
+            <label for="cfg-mesas-input">Cantidad de Mesas Habilitadas para Hoy (1 a 50):</label>
+            <input type="number" id="cfg-mesas-input" min="1" max="50" required>
+          </div>
+
+          <div class="form-group">
+            <label for="cfg-ticket-format">Formato de Ticket Térmico:</label>
+            <select id="cfg-ticket-format">
+              <option value="80mm">80mm (Estándar Punto de Venta)</option>
+              <option value="58mm">58mm (Impresora Móvil / Compacta)</option>
+            </select>
+          </div>
+
+          <button type="submit" class="btn-checkout" style="width: auto; align-self: flex-start; padding: 0.6rem 1.5rem; min-height: auto; font-size: 0.95rem;">
+            💾 Guardar Configuración
+          </button>
+        </form>
+
+        <!-- Zona de Acciones Críticas de Mantenimiento -->
+        <div style="background: rgba(239, 68, 68, 0.05); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: var(--radius-md); padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
+          <h3 style="font-size: 1rem; font-weight: 700; color: var(--danger);">🚨 Acciones de Seguridad y Mantenimiento</h3>
+
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;">
+            <div>
+              <div style="font-weight: 700;">Reiniciar Stock al Valor Inicial</div>
+              <div style="font-size: 0.8rem; color: var(--text-muted);">Restaura el stock_actual al stock_inicial en todos los productos para calibraciones de inventario.</div>
+            </div>
+            <button class="table-pill-btn" style="border-color: var(--warning); color: var(--warning);" id="btn-reset-stock-action">
+              🔄 Reiniciar Stock
+            </button>
+          </div>
+
+          <div style="border-top: 1px solid rgba(239, 68, 68, 0.15); padding-top: 1rem; display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;">
+            <div>
+              <div style="font-weight: 700; color: var(--accent-gold);">Cargar Catálogo de Demostración</div>
+              <div style="font-size: 0.8rem; color: var(--text-muted);">Puebla el menú con los 10 productos de muestra de cafetería para pruebas.</div>
+            </div>
+            <button class="table-pill-btn" style="border-color: var(--primary); color: var(--accent-gold);" id="btn-load-demo-seeds">
+              ☕ Cargar Catálogo Demo
+            </button>
+          </div>
+
+          <div style="border-top: 1px solid rgba(239, 68, 68, 0.15); padding-top: 1rem; display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;">
+            <div>
+              <div style="font-weight: 700; color: var(--danger);">Restauración Total de Fábrica</div>
+              <div style="font-size: 0.8rem; color: var(--text-muted);">Elimina tickets, comandas y deja la base de datos limpia (catálogo vacío). Exige escribir 'borrar'.</div>
+            </div>
+            <button class="table-pill-btn" style="background: var(--danger-bg); border-color: var(--danger); color: var(--danger);" id="btn-wipe-db-action">
+              ⚠️ Purgar Base de Datos
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ====================================================================
+       MODAL 1: CHECKOUT & MEDIOS DE PAGO
+       ==================================================================== -->
+  <div class="modal-backdrop" id="modal-checkout">
+    <div class="modal-window">
+      <div class="modal-header">
+        <h3 class="modal-title">Cobro de Ticket - <span id="checkout-modal-mesa"></span></h3>
+        <button class="modal-close-btn" onclick="TPV.closeCheckoutModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div style="text-align: center; background: var(--bg-card); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
+          <div style="font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase;">Monto Total a Cobrar</div>
+          <div style="font-size: 2.2rem; font-weight: 800; color: var(--accent-gold); font-family: var(--font-mono);" id="checkout-modal-total">$0</div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+          <label style="font-size: 0.85rem; font-weight: 700; color: var(--text-muted);">Seleccione el Medio de Pago:</label>
+          <div class="payment-methods-grid">
+            <button class="payment-btn selected" data-method="Efectivo">
+              <span class="icon">💵</span>
+              <span>Efectivo</span>
+            </button>
+            <button class="payment-btn" data-method="Débito">
+              <span class="icon">💳</span>
+              <span>Débito</span>
+            </button>
+            <button class="payment-btn" data-method="Crédito">
+              <span class="icon">💳</span>
+              <span>Crédito</span>
+            </button>
+            <button class="payment-btn" data-method="Transferencia">
+              <span class="icon">📱</span>
+              <span>Transferencia</span>
+            </button>
+          </div>
+        </div>
+
+        <button class="btn-checkout" id="btn-confirm-checkout" style="margin-top: 0.5rem;">
+          ⚡ Confirmar y Cobrar Ticket
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====================================================================
+       MODAL 2: VISTA IMPRIMIBLE DE TICKET TÉRMICO
+       ==================================================================== -->
+  <div class="modal-backdrop" id="modal-ticket-print">
+    <div class="modal-window" style="max-width: 420px;">
+      <div class="modal-header no-print">
+        <h3 class="modal-title">Comprobante Emitido</h3>
+        <button class="modal-close-btn" onclick="TPV.closeTicketPrintModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="ticket-print-content">
+          <!-- Contenido del ticket inyectado desde TPV.js -->
+        </div>
+        <div style="display: flex; gap: 0.75rem; margin-top: 1rem;" class="no-print">
+          <button class="btn-checkout" onclick="TPV.printTicket()" style="flex: 1;">
+            🖨️ Imprimir Ticket
+          </button>
+          <button class="table-pill-btn" onclick="TPV.closeTicketPrintModal()" style="padding: 0.75rem 1.25rem;">
+            Cerrar
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====================================================================
+       MODAL 3: NUEVO PRODUCTO
+       ==================================================================== -->
+  <div class="modal-backdrop" id="modal-new-product">
+    <div class="modal-window">
+      <div class="modal-header">
+        <h3 class="modal-title">Registrar Nuevo Producto</h3>
+        <button class="modal-close-btn" onclick="Inventario.closeNewProductModal()">✕</button>
+      </div>
+      <form id="form-new-product" class="modal-body">
+        <div class="form-group">
+          <label for="new-prod-codigo">Código Único (ej: CAF07):</label>
+          <input type="text" id="new-prod-codigo" required placeholder="CAF07" style="text-transform: uppercase;">
+        </div>
+        <div class="form-group">
+          <label for="new-prod-nombre">Nombre del Producto:</label>
+          <input type="text" id="new-prod-nombre" required placeholder="Flat White Austral">
+        </div>
+        <div class="form-group">
+          <label for="new-prod-stock">Stock Inicial (Unidades):</label>
+          <input type="number" id="new-prod-stock" min="0" value="20" required>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+          <div class="form-group">
+            <label for="new-prod-costo">Costo Unitario ($):</label>
+            <input type="number" step="0.01" min="0" id="new-prod-costo" value="800" required>
+          </div>
+          <div class="form-group">
+            <label for="new-prod-precio">Precio de Venta ($):</label>
+            <input type="number" step="0.01" min="0" id="new-prod-precio" value="2200" required>
+          </div>
+        </div>
+        <button type="submit" class="btn-checkout" style="margin-top: 0.5rem;">
+          💾 Guardar Producto en Catálogo
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ====================================================================
+       MODAL 3B: MODIFICAR PRODUCTO
+       ==================================================================== -->
+  <div class="modal-backdrop" id="modal-edit-product">
+    <div class="modal-window">
+      <div class="modal-header">
+        <h3 class="modal-title">Modificar Ficha de Producto</h3>
+        <button class="modal-close-btn" onclick="Inventario.closeEditModal()">✕</button>
+      </div>
+      <form id="form-edit-product" class="modal-body">
+        <input type="hidden" id="edit-prod-id">
+        
+        <div class="form-group">
+          <label for="edit-prod-codigo">Código Único:</label>
+          <input type="text" id="edit-prod-codigo" required style="text-transform: uppercase;">
+        </div>
+
+        <div class="form-group">
+          <label for="edit-prod-nombre">Nombre del Producto:</label>
+          <input type="text" id="edit-prod-nombre" required>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+          <div class="form-group">
+            <label for="edit-prod-stock-inicial">Stock Inicial (Base):</label>
+            <input type="number" id="edit-prod-stock-inicial" min="0" required>
+          </div>
+          <div class="form-group">
+            <label for="edit-prod-stock-actual">Stock Actual (Disponible):</label>
+            <input type="number" id="edit-prod-stock-actual" min="0" required>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+          <div class="form-group">
+            <label for="edit-prod-costo">Costo Unitario ($):</label>
+            <input type="number" step="0.01" min="0" id="edit-prod-costo" required>
+          </div>
+          <div class="form-group">
+            <label for="edit-prod-precio">Precio de Venta ($):</label>
+            <input type="number" step="0.01" min="0" id="edit-prod-precio" required>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="edit-prod-activo">Estado Operativo:</label>
+          <select id="edit-prod-activo">
+            <option value="1">Activo (Disponible en TPV)</option>
+            <option value="0">Inactivo (Oculto en TPV)</option>
+          </select>
+        </div>
+
+        <button type="submit" class="btn-checkout" style="margin-top: 0.5rem;">
+          💾 Guardar Modificaciones
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ====================================================================
+       MODAL 4: REABASTECIMIENTO RÁPIDO (+N UNIDADES)
+       ==================================================================== -->
+  <div class="modal-backdrop" id="modal-replenish-product">
+    <div class="modal-window" style="max-width: 440px;">
+      <div class="modal-header">
+        <h3 class="modal-title">Reabastecimiento de Stock</h3>
+        <button class="modal-close-btn" onclick="Inventario.closeReplenishModal()">✕</button>
+      </div>
+      <form id="form-replenish-product" class="modal-body">
+        <div style="background: var(--bg-card); padding: 1rem; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle);">
+          <div style="font-weight: 700; font-size: 1rem;" id="replenish-prod-name">Producto</div>
+          <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.25rem;">
+            Stock actual disponible: <strong id="replenish-prod-stock" style="color: var(--accent-gold);">0</strong> unidades
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="replenish-cant-input">Unidades a Ingresar (+N):</label>
+          <input type="number" id="replenish-cant-input" min="1" value="10" required style="font-size: 1.2rem; font-weight: 700; text-align: center;">
+        </div>
+
+        <button type="submit" class="btn-checkout">
+          📦 Sumar Unidades al Inventario
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ====================================================================
+       MODAL 5: REPORTE DE CIERRE IMPRIMIBLE
+       ==================================================================== -->
+  <div class="modal-backdrop" id="modal-reporte-cierre-print">
+    <div class="modal-window" style="max-width: 460px;">
+      <div class="modal-header no-print">
+        <h3 class="modal-title">Reporte de Cierre de Caja</h3>
+        <button class="modal-close-btn" onclick="Caja.closeReporteModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="reporte-cierre-content">
+          <!-- Inyectado desde caja.js -->
+        </div>
+        <div style="display: flex; gap: 0.75rem; margin-top: 1rem;" class="no-print">
+          <button class="btn-checkout" onclick="window.print()" style="flex: 1;">
+            🖨️ Imprimir Reporte
+          </button>
+          <button class="table-pill-btn" onclick="Caja.closeReporteModal()" style="padding: 0.75rem 1.25rem;">
+            Cerrar
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Contenedor Flotante de Notificaciones Toast -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- Scripts Modulares -->
+  <script src="/static/js/api.js"></script>
+  <script src="/static/js/tpv.js"></script>
+  <script src="/static/js/inventario.js"></script>
+  <script src="/static/js/caja.js"></script>
+  <script src="/static/js/configuracion.js"></script>
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

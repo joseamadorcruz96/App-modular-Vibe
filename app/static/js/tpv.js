@@ -1,0 +1,343 @@
+/**
+ * CoffeePOS - Módulo TPV (Terminal Punto de Venta & Comandera)
+ * Gestiona el flujo táctil de mesas, catálogo con buscador, carrito temporal y checkout atómico.
+ */
+
+window.TPV = {
+  mesaSeleccionada: 'Barra / Para Llevar',
+  productos: [],
+  carrito: [], // { producto, cantidad }
+  medioPagoSeleccionado: 'Efectivo',
+
+  async init() {
+    this.bindEvents();
+    await this.refresh();
+  },
+
+  bindEvents() {
+    // Buscador rápido con debounce
+    const searchInput = document.getElementById('tpv-search');
+    if (searchInput) {
+      searchInput.addEventListener('input', (e) => {
+        this.renderProducts(e.target.value);
+      });
+    }
+
+    // Botón de Cobrar
+    const btnCheckout = document.getElementById('btn-open-checkout');
+    if (btnCheckout) {
+      btnCheckout.addEventListener('click', () => this.openCheckoutModal());
+    }
+
+    // Selector de Medio de Pago en Modal
+    const paymentButtons = document.querySelectorAll('.payment-btn');
+    paymentButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        paymentButtons.forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+        this.medioPagoSeleccionado = btn.dataset.method;
+      });
+    });
+
+    // Confirmar Cobro en Modal
+    const btnConfirmCheckout = document.getElementById('btn-confirm-checkout');
+    if (btnConfirmCheckout) {
+      btnConfirmCheckout.addEventListener('click', () => this.processCheckout());
+    }
+  },
+
+  async refresh() {
+    await this.renderTables();
+    await this.loadProducts();
+  },
+
+  async renderTables() {
+    const container = document.getElementById('tpv-tables-carousel');
+    if (!container) return;
+
+    try {
+      const cfg = await API.getConfig();
+      const numMesas = cfg.mesas_activas || 8;
+
+      let html = `
+        <button class="table-pill-btn ${this.mesaSeleccionada === 'Barra / Para Llevar' ? 'selected' : ''}" 
+                onclick="TPV.selectMesa('Barra / Para Llevar')">
+          ☕ Barra / Para Llevar
+        </button>
+      `;
+
+      for (let i = 1; i <= numMesas; i++) {
+        const mesaName = `Mesa ${i}`;
+        const isSelected = this.mesaSeleccionada === mesaName;
+        html += `
+          <button class="table-pill-btn ${isSelected ? 'selected' : ''}" 
+                  onclick="TPV.selectMesa('${mesaName}')">
+            🪑 Mesa ${i}
+          </button>
+        `;
+      }
+
+      container.innerHTML = html;
+      document.getElementById('cart-selected-table').textContent = this.mesaSeleccionada;
+    } catch (err) {
+      console.error('Error renderizando mesas:', err);
+    }
+  },
+
+  selectMesa(mesa) {
+    this.mesaSeleccionada = mesa;
+    this.renderTables();
+    document.getElementById('cart-selected-table').textContent = mesa;
+    App.showToast(`Mesa seleccionada: ${mesa}`, 'info');
+  },
+
+  async loadProducts() {
+    try {
+      this.productos = await API.getProducts('', true);
+      this.renderProducts();
+    } catch (err) {
+      App.showToast('Error cargando catálogo de productos', 'error');
+    }
+  },
+
+  renderProducts(filtro = '') {
+    const grid = document.getElementById('tpv-products-grid');
+    if (!grid) return;
+
+    const term = filtro.toLowerCase().trim();
+    const filtrados = this.productos.filter(p => 
+      p.nombre.toLowerCase().includes(term) || p.codigo.toLowerCase().includes(term)
+    );
+
+    if (filtrados.length === 0) {
+      grid.innerHTML = `
+        <div style="grid-column: 1/-1; text-align: center; color: var(--text-dim); padding: 3rem;">
+          <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">🔍</div>
+          <p>No se encontraron productos coincidentes.</p>
+        </div>
+      `;
+      return;
+    }
+
+    grid.innerHTML = filtrados.map(prod => {
+      const enStock = prod.stock_actual > 0;
+      const isCritical = prod.stock_actual <= 5;
+      const stockBadge = isCritical 
+        ? `<span class="prod-stock-pill critical">🚨 Stock: ${prod.stock_actual}</span>`
+        : `<span class="prod-stock-pill">Stock: ${prod.stock_actual}</span>`;
+
+      return `
+        <div class="product-card ${enStock ? '' : 'out-of-stock'}" 
+             onclick="${enStock ? `TPV.addToCart(${prod.id})` : `App.showToast('Sin stock disponible para ${prod.nombre}', 'error')`}">
+          <div>
+            <div class="prod-code-badge">${prod.codigo}</div>
+            <div class="prod-name">${prod.nombre}</div>
+          </div>
+          <div class="prod-footer">
+            <div class="prod-price">${App.formatMoney(prod.precio_venta)}</div>
+            <div>${stockBadge}</div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  },
+
+  addToCart(productId) {
+    const prod = this.productos.find(p => p.id === productId);
+    if (!prod) return;
+
+    const existing = this.carrito.find(item => item.producto.id === productId);
+    const cantidadActual = existing ? existing.cantidad : 0;
+
+    if (cantidadActual + 1 > prod.stock_actual) {
+      App.showToast(`Stock máximo alcanzado para ${prod.nombre} (${prod.stock_actual} disp.)`, 'error');
+      return;
+    }
+
+    if (existing) {
+      existing.cantidad++;
+    } else {
+      this.carrito.push({ producto: prod, cantidad: 1 });
+    }
+
+    this.renderCart();
+  },
+
+  updateQuantity(productId, delta) {
+    const item = this.carrito.find(i => i.producto.id === productId);
+    if (!item) return;
+
+    const nuevaCant = item.cantidad + delta;
+    if (nuevaCant <= 0) {
+      this.removeFromCart(productId);
+      return;
+    }
+
+    if (nuevaCant > item.producto.stock_actual) {
+      App.showToast(`Stock insuficiente. Solo quedan ${item.producto.stock_actual} unidades.`, 'error');
+      return;
+    }
+
+    item.cantidad = nuevaCant;
+    this.renderCart();
+  },
+
+  removeFromCart(productId) {
+    this.carrito = this.carrito.filter(i => i.producto.id !== productId);
+    this.renderCart();
+  },
+
+  clearCart() {
+    this.carrito = [];
+    this.renderCart();
+  },
+
+  renderCart() {
+    const listEl = document.getElementById('tpv-cart-items');
+    const totalEl = document.getElementById('tpv-cart-total');
+    const btnCheckout = document.getElementById('btn-open-checkout');
+    if (!listEl || !totalEl) return;
+
+    if (this.carrito.length === 0) {
+      listEl.innerHTML = `
+        <div class="cart-empty-state">
+          <div class="icon">🛒</div>
+          <p style="font-weight: 600;">Comanda vacía</p>
+          <span style="font-size: 0.8rem;">Seleccione productos para comenzar el ticket.</span>
+        </div>
+      `;
+      totalEl.textContent = App.formatMoney(0);
+      if (btnCheckout) btnCheckout.disabled = true;
+      return;
+    }
+
+    let total = 0;
+    listEl.innerHTML = this.carrito.map(item => {
+      const subtotal = item.producto.precio_venta * item.cantidad;
+      total += subtotal;
+
+      return `
+        <div class="cart-item-row">
+          <div class="cart-item-info">
+            <div class="cart-item-name">${item.producto.nombre}</div>
+            <div class="cart-item-unit-price">${App.formatMoney(item.producto.precio_venta)} c/u</div>
+          </div>
+          <div class="cart-stepper">
+            <button class="stepper-btn" onclick="TPV.updateQuantity(${item.producto.id}, -1)">−</button>
+            <span class="stepper-value">${item.cantidad}</span>
+            <button class="stepper-btn" onclick="TPV.updateQuantity(${item.producto.id}, 1)">+</button>
+          </div>
+          <div class="cart-item-subtotal">${App.formatMoney(subtotal)}</div>
+          <button class="cart-item-remove" onclick="TPV.removeFromCart(${item.producto.id})" title="Eliminar">🗑️</button>
+        </div>
+      `;
+    }).join('');
+
+    totalEl.textContent = App.formatMoney(total);
+    if (btnCheckout) btnCheckout.disabled = false;
+  },
+
+  openCheckoutModal() {
+    if (this.carrito.length === 0) return;
+
+    const modal = document.getElementById('modal-checkout');
+    const total = this.carrito.reduce((acc, i) => acc + (i.producto.precio_venta * i.cantidad), 0);
+
+    document.getElementById('checkout-modal-mesa').textContent = this.mesaSeleccionada;
+    document.getElementById('checkout-modal-total').textContent = App.formatMoney(total);
+
+    modal.classList.add('active');
+  },
+
+  closeCheckoutModal() {
+    document.getElementById('modal-checkout').classList.remove('active');
+  },
+
+  async processCheckout() {
+    const btn = document.getElementById('btn-confirm-checkout');
+    const clienteInput = document.getElementById('checkout-cliente-input');
+    const cliente = clienteInput ? clienteInput.value.trim() : 'Consumidor Final';
+
+    btn.disabled = true;
+    btn.textContent = 'Procesando Transacción...';
+
+    const payload = {
+      mesa: this.mesaSeleccionada,
+      cliente: cliente || 'Consumidor Final',
+      medio_pago: this.medioPagoSeleccionado,
+      items: this.carrito.map(i => ({
+        producto_id: i.producto.id,
+        cantidad: i.cantidad
+      }))
+    };
+
+    try {
+      const ticket = await API.checkout(payload);
+      App.showToast(`Ticket ${ticket.numero_ticket} emitido exitosamente`, 'success');
+      this.closeCheckoutModal();
+      this.clearCart();
+      await this.loadProducts(); // Refrescar existencias
+
+      // Mostrar e imprimir comprobante térmico
+      this.showTicketPrintModal(ticket);
+    } catch (err) {
+      App.showToast(err.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '⚡ Confirmar y Cobrar Ticket';
+    }
+  },
+
+  showTicketPrintModal(ticket) {
+    const modal = document.getElementById('modal-ticket-print');
+    const content = document.getElementById('ticket-print-content');
+
+    const filasHtml = ticket.detalles.map(d => `
+      <tr>
+        <td>${d.cantidad}x ${d.nombre}</td>
+        <td style="text-align: right;">${App.formatMoney(d.subtotal)}</td>
+      </tr>
+    `).join('');
+
+    content.innerHTML = `
+      <div class="ticket-container">
+        <div class="ticket-header">
+          <h2 style="font-size: 1.1rem; font-weight: 800; margin-bottom: 2px;">${App.config.nombre_local}</h2>
+          <div style="font-size: 0.8rem;">BOLETA / TICKET DE VENTA</div>
+          <div style="font-weight: 700; margin-top: 4px;">${ticket.numero_ticket}</div>
+          <div style="font-size: 0.75rem; color: #555;">Fecha: ${ticket.fecha_hora}</div>
+          <div style="font-size: 0.8rem; font-weight: 600;">${ticket.mesa} | ${ticket.cliente}</div>
+        </div>
+        <table class="ticket-table">
+          <thead>
+            <tr style="border-bottom: 1px dashed #999;">
+              <th>ÍTEM</th>
+              <th style="text-align: right;">TOTAL</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filasHtml}
+          </tbody>
+        </table>
+        <div class="ticket-footer">
+          <div style="display: flex; justify-content: space-between; font-weight: 800; font-size: 1rem; margin-bottom: 4px;">
+            <span>TOTAL:</span>
+            <span>${App.formatMoney(ticket.total)}</span>
+          </div>
+          <div style="font-size: 0.8rem; margin-bottom: 8px;">Medio de Pago: ${ticket.medio_pago}</div>
+          <div style="font-size: 0.75rem;">¡Gracias por su preferencia!</div>
+        </div>
+      </div>
+    `;
+
+    modal.classList.add('active');
+  },
+
+  closeTicketPrintModal() {
+    document.getElementById('modal-ticket-print').classList.remove('active');
+  },
+
+  printTicket() {
+    window.print();
+  }
+};
