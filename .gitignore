@@ -68,8 +68,7 @@ Desktop.ini
 .project
 .pydevproject
 .settings/
-.vscode/*
-!.vscode/settings.json
+.vscode/
 
 # Informes internos y de auditoría de seguridad
 INFORME_VULNERABILIDAD_SEGURIDAD_ACCESO.md
