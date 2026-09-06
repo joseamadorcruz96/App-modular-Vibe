@@ -12,7 +12,12 @@ Valida:
 
 # pyrefly: ignore [missing-import]
 import pytest
+import sys
 from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
 
 from app.database import init_db, get_db_connection, atomic_transaction
 from app.services.comanda_service import ComandaService
@@ -448,4 +453,8 @@ def test_cancelacion_comanda_merma_vs_restauracion_inventario(test_db: Path):
         assert cursor.fetchone()["stock_actual"] == stock_base - 3  # Volvió a recuperar las 2 unidades
     finally:
         conn.close()
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])
 
