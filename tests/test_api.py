@@ -27,7 +27,7 @@ def setup_test_environment(tmp_path: Path, monkeypatch):
 
     init_db(db_file, schema_file)
     from app.services.caja_service import CajaService
-    seeds_file = Path(__file__).resolve().parent.parent / "data" / "seeds.sql"
+    seeds_file = Path(__file__).resolve().parent / "fixtures" / "seeds_con_recetas.sql"
     CajaService.cargar_semillas_demo(db_file, seeds_file)
 
 
@@ -438,14 +438,14 @@ def test_api_sistema_limpieza_total_y_cargar_demo():
     res_demo = client.post("/api/sistema/cargar-demo")
     assert res_demo.status_code == 200
     data_demo = res_demo.json()
-    assert data_demo["productos_cargados"] >= 10
-    assert data_demo["insumos_cargados"] >= 10
-    assert data_demo["recetas_vinculadas"] >= 10
+    assert data_demo["productos_cargados"] == 24
+    assert data_demo["insumos_cargados"] == 0
+    assert data_demo["recetas_vinculadas"] == 0
 
     # Verificar que existen productos y están categorizados
     prods = client.get("/api/productos").json()
-    assert len(prods) == data_demo["productos_cargados"]
-    assert any(p["codigo"] == "SAN01" for p in prods)
+    assert len(prods) == 24
+    assert any(p["codigo"] == "SAL01" for p in prods)
     assert any(p["codigo"] == "CAF01" for p in prods)
 
 

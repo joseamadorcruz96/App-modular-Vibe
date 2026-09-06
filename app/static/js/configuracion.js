@@ -111,7 +111,7 @@ window.Configuracion = {
 
   async handleLoadDemoSeeds() {
     const confirmacion = confirm(
-      '¿Desea cargar los 10 productos de demostración de cafetería en el inventario?'
+      '¿Desea cargar el catálogo oficial de 24 productos de cafetería en el inventario?'
     );
     if (!confirmacion) return;
 

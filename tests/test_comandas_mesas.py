@@ -31,7 +31,7 @@ def test_db(tmp_path: Path):
     """Crea una base de datos aislada para cada prueba."""
     db_file = tmp_path / "test_comandas.db"
     schema_file = Path(__file__).resolve().parent.parent / "data" / "schema.sql"
-    seeds_file = Path(__file__).resolve().parent.parent / "data" / "seeds.sql"
+    seeds_file = Path(__file__).resolve().parent / "fixtures" / "seeds_con_recetas.sql"
     init_db(db_file, schema_file)
     from app.services.caja_service import CajaService
     CajaService.cargar_semillas_demo(db_file, seeds_file)

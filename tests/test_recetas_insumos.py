@@ -32,7 +32,7 @@ def test_db(tmp_path: Path):
     """Crea una base de datos aislada para cada prueba."""
     db_file = tmp_path / "test_insumos.db"
     schema_file = Path(__file__).resolve().parent.parent / "data" / "schema.sql"
-    seeds_file = Path(__file__).resolve().parent.parent / "data" / "seeds.sql"
+    seeds_file = Path(__file__).resolve().parent / "fixtures" / "seeds_con_recetas.sql"
     init_db(db_file, schema_file)
     from app.services.caja_service import CajaService
     CajaService.cargar_semillas_demo(db_file, seeds_file)
@@ -440,8 +440,8 @@ def test_cargar_semillas_demo_comestibles_y_bebibles(test_db: Path):
     # Limpiar primero
     CajaService.limpiar_base_datos_total(test_db, schema_file)
 
-    # Cargar demo
-    seeds_file = Path(__file__).resolve().parent.parent / "data" / "seeds.sql"
+    # Cargar demo con recetas
+    seeds_file = Path(__file__).resolve().parent / "fixtures" / "seeds_con_recetas.sql"
     res_demo = CajaService.cargar_semillas_demo(test_db, seeds_file)
 
     assert res_demo["productos"] >= 10
@@ -472,6 +472,44 @@ def test_cargar_semillas_demo_comestibles_y_bebibles(test_db: Path):
         receta_toston = InsumoService.obtener_receta_producto(conn, prod_toston["id"])
         assert receta_toston["tiene_receta"] is True
         assert len(receta_toston["ingredientes"]) == 3  # Pan, Palta, Huevo
+    finally:
+        conn.close()
+
+
+def test_cargar_semillas_catalogo_oficial_cafeteria(test_db: Path):
+    """Verifica que data/seeds.sql contenga los 24 productos del menú con costo 0 y sin recetas predefinidas."""
+    from app.services.caja_service import CajaService
+
+    schema_file = Path(__file__).resolve().parent.parent / "data" / "schema.sql"
+    CajaService.limpiar_base_datos_total(test_db, schema_file)
+
+    seeds_file = Path(__file__).resolve().parent.parent / "data" / "seeds.sql"
+    res = CajaService.cargar_semillas_demo(test_db, seeds_file)
+
+    assert res["productos"] == 24
+    assert res["insumos"] == 0
+    assert res["recetas"] == 0
+
+    conn = get_db_connection(test_db)
+    try:
+        # Verificar stocks conocidos
+        prod_comp = conn.execute("SELECT stock_actual, precio_venta, costo_unitario FROM productos WHERE codigo = 'SAL01';").fetchone()
+        assert prod_comp["stock_actual"] == 40
+        assert prod_comp["precio_venta"] == 2500.0
+        assert prod_comp["costo_unitario"] == 0.0
+
+        prod_hamb = conn.execute("SELECT stock_actual, precio_venta FROM productos WHERE codigo = 'SAL02';").fetchone()
+        assert prod_hamb["stock_actual"] == 30
+        assert prod_hamb["precio_venta"] == 3500.0
+
+        prod_torta = conn.execute("SELECT stock_actual, precio_venta FROM productos WHERE codigo = 'PAS01';").fetchone()
+        assert prod_torta["stock_actual"] == 11
+        assert prod_torta["precio_venta"] == 4000.0
+
+        # Verificar productos con stock 0
+        prod_exp = conn.execute("SELECT stock_actual, precio_venta FROM productos WHERE codigo = 'CAF01';").fetchone()
+        assert prod_exp["stock_actual"] == 0
+        assert prod_exp["precio_venta"] == 1500.0
     finally:
         conn.close()
 
