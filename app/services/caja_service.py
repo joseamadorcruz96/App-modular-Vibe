@@ -316,7 +316,7 @@ class CajaService:
     def limpiar_base_datos_total(
         database_path: Optional[Path] = None,
         schema_file: Optional[Path] = None
-    ) -> None:
+    ) -> Dict[str, str]:
         """
         Restaura la base de datos al estado de fábrica ejecutando nuevamente el esquema DDL y semillas.
 

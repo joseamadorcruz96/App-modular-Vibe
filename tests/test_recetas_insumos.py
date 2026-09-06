@@ -60,10 +60,12 @@ def test_crud_insumos_y_reabastecimiento(test_db: Path):
 
         # Reabastecer (+1500 g)
         ins_reab = InsumoService.reabastecer_insumo(conn, ins["id"], 1500.0)
+        assert ins_reab is not None
         assert ins_reab["stock_actual"] == 4500.0
 
         # Actualizar costo unitario
         ins_upd = InsumoService.actualizar_insumo(conn, ins["id"], InsumoUpdate(costo_unitario=2.8))
+        assert ins_upd is not None
         assert ins_upd["costo_unitario"] == 2.8
 
         # Listar insumos
@@ -108,6 +110,7 @@ def test_formulacion_receta_y_calculo_margen(test_db: Path):
 
         # Comprobar que en la tabla productos se actualizó el costo_unitario
         prod_db = ProductoService.obtener_por_id(conn, prod_id)
+        assert prod_db is not None
         assert prod_db["costo_unitario"] == 800.0
     finally:
         conn.close()
@@ -122,7 +125,9 @@ def test_descuento_atomico_insumos_en_checkout(test_db: Path):
         cafe_pre = insumos_pre["INS-CAFE"]
         leche_pre = insumos_pre["INS-LECHE"]
 
-        p4_pre = ProductoService.obtener_por_id(conn, 4)["stock_actual"]
+        p4_pre_obj = ProductoService.obtener_por_id(conn, 4)
+        assert p4_pre_obj is not None
+        p4_pre = p4_pre_obj["stock_actual"]
 
         # Pedir 3 Capuccinos
         pedido_data = PedidoCreate(
@@ -145,7 +150,9 @@ def test_descuento_atomico_insumos_en_checkout(test_db: Path):
         assert insumos_post["INS-LECHE"] == leche_pre - 450.0
 
         # Verificar que el producto también descontó sus 3 unidades
-        p4_post = ProductoService.obtener_por_id(conn, 4)["stock_actual"]
+        p4_post_obj = ProductoService.obtener_por_id(conn, 4)
+        assert p4_post_obj is not None
+        p4_post = p4_post_obj["stock_actual"]
         assert p4_post == p4_pre - 3
     finally:
         conn.close()
@@ -162,7 +169,9 @@ def test_rollback_por_insumo_insuficiente(test_db: Path):
 
         insumos_pre = {i["codigo"]: i["stock_actual"] for i in InsumoService.listar_insumos(conn)}
         cafe_pre = insumos_pre["INS-CAFE"]
-        p4_pre = ProductoService.obtener_por_id(conn, 4)["stock_actual"]
+        p4_pre_obj = ProductoService.obtener_por_id(conn, 4)
+        assert p4_pre_obj is not None
+        p4_pre = p4_pre_obj["stock_actual"]
 
         # Capuccino requiere 150ml de leche por unidad. Pedimos 1 unidad (faltan 50ml).
         pedido_data = PedidoCreate(
@@ -183,7 +192,9 @@ def test_rollback_por_insumo_insuficiente(test_db: Path):
         assert insumos_post["INS-CAFE"] == cafe_pre
         assert insumos_post["INS-LECHE"] == 100.0
 
-        p4_post = ProductoService.obtener_por_id(conn, 4)["stock_actual"]
+        p4_post_obj = ProductoService.obtener_por_id(conn, 4)
+        assert p4_post_obj is not None
+        p4_post = p4_post_obj["stock_actual"]
         assert p4_post == p4_pre
     finally:
         conn.close()
@@ -195,6 +206,7 @@ def test_eliminar_receta_retorno_a_producto_simple(test_db: Path):
     try:
         # Producto 1 (Espresso) tiene receta
         receta_pre = InsumoService.obtener_receta_producto(conn, 1)
+        assert receta_pre is not None
         assert receta_pre["tiene_receta"] is True
 
         # Eliminar receta
@@ -203,6 +215,7 @@ def test_eliminar_receta_retorno_a_producto_simple(test_db: Path):
 
         # Ahora el producto no tiene receta
         receta_post = InsumoService.obtener_receta_producto(conn, 1)
+        assert receta_post is not None
         assert receta_post["tiene_receta"] is False
         assert len(receta_post["ingredientes"]) == 0
     finally:
@@ -310,6 +323,7 @@ def test_eliminar_insumo_forzado_con_recetas(test_db: Path):
         # Verificar que la receta de CAF06 ya no contiene INS-CHOCO
         prod_mocaccino = next(p for p in ProductoService.listar_productos(conn) if p["codigo"] == "CAF06")
         receta_moca = InsumoService.obtener_receta_producto(conn, prod_mocaccino["id"])
+        assert receta_moca is not None
         assert all(ing["insumo_id"] != choco_id for ing in receta_moca["ingredientes"])
     finally:
         conn.close()
@@ -347,6 +361,7 @@ def test_crear_producto_con_receta_embebida(test_db: Path):
 
         # Verificar receta persistida en la tabla receta_detalles
         receta_db = InsumoService.obtener_receta_producto(conn, prod_creado["id"])
+        assert receta_db is not None
         assert receta_db["tiene_receta"] is True
         assert len(receta_db["ingredientes"]) == 3
         assert receta_db["costo_receta"] == 595.0
@@ -385,6 +400,7 @@ def test_descuento_atomico_recetas_comestibles(test_db: Path):
 
         # Validar descuento de producto
         prod_san_post = ProductoService.obtener_por_id(conn, prod_san["id"])
+        assert prod_san_post is not None
         assert prod_san_post["stock_actual"] == san_stock_pre - 2
 
         # Validar descuento de insumos:
@@ -469,7 +485,9 @@ def test_cargar_semillas_demo_comestibles_y_bebibles(test_db: Path):
 
         # Verificar que Tostón Palta y Huevo (PAN02) tiene sus ingredientes
         prod_toston = conn.execute("SELECT id FROM productos WHERE codigo = 'PAN02';").fetchone()
+        assert prod_toston is not None
         receta_toston = InsumoService.obtener_receta_producto(conn, prod_toston["id"])
+        assert receta_toston is not None
         assert receta_toston["tiene_receta"] is True
         assert len(receta_toston["ingredientes"]) == 3  # Pan, Palta, Huevo
     finally:
@@ -494,20 +512,24 @@ def test_cargar_semillas_catalogo_oficial_cafeteria(test_db: Path):
     try:
         # Verificar stocks conocidos
         prod_comp = conn.execute("SELECT stock_actual, precio_venta, costo_unitario FROM productos WHERE codigo = 'SAL01';").fetchone()
+        assert prod_comp is not None
         assert prod_comp["stock_actual"] == 40
         assert prod_comp["precio_venta"] == 2500.0
         assert prod_comp["costo_unitario"] == 0.0
 
         prod_hamb = conn.execute("SELECT stock_actual, precio_venta FROM productos WHERE codigo = 'SAL02';").fetchone()
+        assert prod_hamb is not None
         assert prod_hamb["stock_actual"] == 30
         assert prod_hamb["precio_venta"] == 3500.0
 
         prod_torta = conn.execute("SELECT stock_actual, precio_venta FROM productos WHERE codigo = 'PAS01';").fetchone()
+        assert prod_torta is not None
         assert prod_torta["stock_actual"] == 11
         assert prod_torta["precio_venta"] == 4000.0
 
         # Verificar productos con stock 0
         prod_exp = conn.execute("SELECT stock_actual, precio_venta FROM productos WHERE codigo = 'CAF01';").fetchone()
+        assert prod_exp is not None
         assert prod_exp["stock_actual"] == 0
         assert prod_exp["precio_venta"] == 1500.0
     finally:

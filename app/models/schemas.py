@@ -43,18 +43,18 @@ class RecetaItemCreate(BaseModel):
 
 class ProductoCreate(ProductoBase):
     """Esquema de solicitud para dar de alta un producto."""
-    receta: Optional[List[RecetaItemCreate]] = Field(None, description="Lista opcional de insumos para la receta")
+    receta: Optional[List[RecetaItemCreate]] = Field(default=None, description="Lista opcional de insumos para la receta")
 
 
 class ProductoUpdate(BaseModel):
     """Esquema para actualización de campos de un producto existente."""
-    codigo: Optional[str] = Field(None, min_length=1, max_length=20, description="Código único de producto")
-    nombre: Optional[str] = Field(None, min_length=2, max_length=100, description="Nombre descriptivo")
-    stock_inicial: Optional[int] = Field(None, ge=0, description="Stock inicial base")
-    stock_actual: Optional[int] = Field(None, ge=0, description="Stock actual disponible")
-    costo_unitario: Optional[float] = Field(None, ge=0.0, description="Costo unitario")
-    precio_venta: Optional[float] = Field(None, ge=0.0, description="Precio de venta")
-    activo: Optional[int] = Field(None, ge=0, le=1, description="Estado 1 activo / 0 inactivo")
+    codigo: Optional[str] = Field(default=None, min_length=1, max_length=20, description="Código único de producto")
+    nombre: Optional[str] = Field(default=None, min_length=2, max_length=100, description="Nombre descriptivo")
+    stock_inicial: Optional[int] = Field(default=None, ge=0, description="Stock inicial base")
+    stock_actual: Optional[int] = Field(default=None, ge=0, description="Stock actual disponible")
+    costo_unitario: Optional[float] = Field(default=None, ge=0.0, description="Costo unitario")
+    precio_venta: Optional[float] = Field(default=None, ge=0.0, description="Precio de venta")
+    activo: Optional[int] = Field(default=None, ge=0, le=1, description="Estado 1 activo / 0 inactivo")
 
     @field_validator("codigo")
     @classmethod
@@ -79,20 +79,20 @@ class ProductoResponse(ProductoBase):
     id: int
     stock_actual: int = Field(..., ge=0)
     activo: int = Field(..., ge=0, le=1)
-    alerta_stock: bool = Field(False, description="True si stock_actual <= 5")
-    tiene_receta: bool = Field(False, description="Indica si el producto tiene receta de insumos")
-    total_insumos_receta: int = Field(0, description="Cantidad de insumos en su receta")
+    alerta_stock: bool = Field(default=False, description="True si stock_actual <= 5")
+    tiene_receta: bool = Field(default=False, description="Indica si el producto tiene receta de insumos")
+    total_insumos_receta: int = Field(default=0, description="Cantidad de insumos en su receta")
     creado_en: Optional[str] = None
     actualizado_en: Optional[str] = None
 
 
 class ProductoBulkItem(BaseModel):
     """Ítem individual para la carga masiva/automática con IA."""
-    codigo: Optional[str] = Field(None, max_length=20, description="Código único de producto (opcional, autogenerado si no se indica)")
+    codigo: Optional[str] = Field(default=None, max_length=20, description="Código único de producto (opcional, autogenerado si no se indica)")
     nombre: str = Field(..., min_length=2, max_length=100, description="Nombre legible del producto")
-    stock: int = Field(0, ge=0, description="Cantidad de unidades a ingresar al inventario")
-    costo_unitario: float = Field(0.0, ge=0.0, description="Costo unitario")
-    precio_venta: float = Field(0.0, ge=0.0, description="Precio de venta a público")
+    stock: int = Field(default=0, ge=0, description="Cantidad de unidades a ingresar al inventario")
+    costo_unitario: float = Field(default=0.0, ge=0.0, description="Costo unitario")
+    precio_venta: float = Field(default=0.0, ge=0.0, description="Precio de venta a público")
 
     @field_validator("codigo")
     @classmethod
@@ -107,7 +107,7 @@ class ProductoBulkItem(BaseModel):
 
 class ProductoBulkRequest(BaseModel):
     """Solicitud de carga masiva de productos vía IA o lote."""
-    modo: str = Field("sumar_stock", description="Estrategia ante existentes: 'sumar_stock' o 'solo_nuevos'")
+    modo: str = Field(default="sumar_stock", description="Estrategia ante existentes: 'sumar_stock' o 'solo_nuevos'")
     productos: List[ProductoBulkItem] = Field(..., min_length=1, description="Lista de productos a importar")
 
 
@@ -146,7 +146,7 @@ class ItemPedidoCreate(BaseModel):
 class PedidoCreate(BaseModel):
     """Esquema de solicitud para registrar y cobrar una comanda."""
     mesa: str = Field(..., min_length=1, max_length=50, description="Identificador de mesa o Barra")
-    cliente: Optional[str] = Field("Consumidor Final", max_length=100, description="Nombre o identificación del cliente")
+    cliente: Optional[str] = Field(default="Consumidor Final", max_length=100, description="Nombre o identificación del cliente")
     medio_pago: str = Field(..., description="Medio de pago: Efectivo, Débito, Crédito, Transferencia")
     items: List[ItemPedidoCreate] = Field(..., min_length=1, description="Lista de líneas del pedido")
 
@@ -204,9 +204,9 @@ class ConfiguracionResponse(BaseModel):
 
 class ConfiguracionUpdate(BaseModel):
     """Esquema para ajustar la cantidad de mesas activas u otros parámetros."""
-    mesas_activas: Optional[int] = Field(None, ge=1, le=50)
-    nombre_local: Optional[str] = Field(None, min_length=1, max_length=100)
-    formato_ticket: Optional[str] = Field(None, pattern="^(58mm|80mm)$")
+    mesas_activas: Optional[int] = Field(default=None, ge=1, le=50)
+    nombre_local: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    formato_ticket: Optional[str] = Field(default=None, pattern="^(58mm|80mm)$")
 
 
 # ==============================================================================
@@ -257,7 +257,7 @@ class InsumoBase(BaseModel):
     nombre: str = Field(..., min_length=2, max_length=100, description="Nombre legible del insumo")
     unidad_medida: str = Field(..., min_length=1, max_length=20, description="Unidad: g, ml, unidad, oz, etc.")
     stock_actual: float = Field(..., ge=0.0, description="Cantidad física disponible")
-    stock_minimo: float = Field(0.0, ge=0.0, description="Umbral de alerta de reabastecimiento")
+    stock_minimo: float = Field(default=0.0, ge=0.0, description="Umbral de alerta de reabastecimiento")
     costo_unitario: float = Field(..., ge=0.0, description="Costo por unidad de medida")
 
     @field_validator("codigo")
@@ -278,13 +278,13 @@ class InsumoCreate(InsumoBase):
 
 class InsumoUpdate(BaseModel):
     """Esquema para editar propiedades de un insumo."""
-    codigo: Optional[str] = Field(None, min_length=1, max_length=20)
-    nombre: Optional[str] = Field(None, min_length=2, max_length=100)
-    unidad_medida: Optional[str] = Field(None, min_length=1, max_length=20)
-    stock_actual: Optional[float] = Field(None, ge=0.0)
-    stock_minimo: Optional[float] = Field(None, ge=0.0)
-    costo_unitario: Optional[float] = Field(None, ge=0.0)
-    activo: Optional[int] = Field(None, ge=0, le=1)
+    codigo: Optional[str] = Field(default=None, min_length=1, max_length=20)
+    nombre: Optional[str] = Field(default=None, min_length=2, max_length=100)
+    unidad_medida: Optional[str] = Field(default=None, min_length=1, max_length=20)
+    stock_actual: Optional[float] = Field(default=None, ge=0.0)
+    stock_minimo: Optional[float] = Field(default=None, ge=0.0)
+    costo_unitario: Optional[float] = Field(default=None, ge=0.0)
+    activo: Optional[int] = Field(default=None, ge=0, le=1)
 
     @field_validator("codigo")
     @classmethod
@@ -344,14 +344,14 @@ class RecetaDetalleResponse(BaseModel):
 class ComandaCreate(BaseModel):
     """Apertura de comanda en una mesa."""
     mesa: str = Field(..., min_length=1, max_length=50, description="Mesa a ocupar (ej: 'Mesa 1')")
-    cliente: Optional[str] = Field("Consumidor Final", max_length=100)
+    cliente: Optional[str] = Field(default="Consumidor Final", max_length=100)
 
 
 class ComandaItemAdd(BaseModel):
     """Adición de producto(s) a una comanda abierta."""
     producto_id: int = Field(..., gt=0)
     cantidad: int = Field(..., gt=0)
-    notas: Optional[str] = Field(None, max_length=200, description="Observaciones (ej. 'sin azúcar')")
+    notas: Optional[str] = Field(default=None, max_length=200, description="Observaciones (ej. 'sin azúcar')")
 
 
 class ComandaItemBatchAdd(BaseModel):
@@ -408,7 +408,7 @@ class MesaEstadoResponse(BaseModel):
 class ComandaCheckout(BaseModel):
     """Liquidación y cobro de una comanda abierta."""
     medio_pago: str = Field(..., description="Efectivo, Débito, Crédito o Transferencia")
-    descuento: float = Field(0.0, ge=0.0)
+    descuento: float = Field(default=0.0, ge=0.0)
 
     @field_validator("medio_pago")
     @classmethod

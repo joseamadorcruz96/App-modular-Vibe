@@ -106,7 +106,9 @@ def test_cobro_comanda_y_liberacion_mesa(test_db: Path):
     conn = get_db_connection(test_db)
     try:
         # Abrir Mesa 2 y agregar 1 Croissant (prod_id=7, stock inicial 12)
-        p7_pre = ProductoService.obtener_por_id(conn, 7)["stock_actual"]
+        p7_obj = ProductoService.obtener_por_id(conn, 7)
+        assert p7_obj is not None
+        p7_pre = p7_obj["stock_actual"]
         cmd = ComandaService.abrir_comanda(conn, ComandaCreate(mesa="Mesa 2", cliente="Ana"))
         ComandaService.agregar_items_comanda(conn, cmd["id"], [
             ComandaItemAdd(producto_id=7, cantidad=2)
@@ -122,11 +124,14 @@ def test_cobro_comanda_y_liberacion_mesa(test_db: Path):
         assert pedido_res["total"] == 4400.0
 
         # Verificar que el stock de Croissant disminuyó en 2
-        p7_post = ProductoService.obtener_por_id(conn, 7)["stock_actual"]
+        p7_post_obj = ProductoService.obtener_por_id(conn, 7)
+        assert p7_post_obj is not None
+        p7_post = p7_post_obj["stock_actual"]
         assert p7_post == p7_pre - 2
 
         # Verificar que la comanda cambió a estado 'Cobrada'
         cmd_final = ComandaService.obtener_comanda_por_id(conn, cmd["id"])
+        assert cmd_final is not None
         assert cmd_final["estado"] == "Cobrada"
 
         # Verificar que Mesa 2 ahora figura como LIBRE
@@ -146,14 +151,18 @@ def test_cancelar_comanda_sin_cobro(test_db: Path):
             ComandaItemAdd(producto_id=1, cantidad=1)
         ])
 
-        p1_pre = ProductoService.obtener_por_id(conn, 1)["stock_actual"]
+        p1_obj = ProductoService.obtener_por_id(conn, 1)
+        assert p1_obj is not None
+        p1_pre = p1_obj["stock_actual"]
 
         # Cancelar comanda
         res_canc = ComandaService.cancelar_comanda(conn, cmd["id"])
         assert res_canc["estado"] == "Cancelada"
 
         # Comprobar que no se descontó stock
-        p1_post = ProductoService.obtener_por_id(conn, 1)["stock_actual"]
+        p1_post_obj = ProductoService.obtener_por_id(conn, 1)
+        assert p1_post_obj is not None
+        p1_post = p1_post_obj["stock_actual"]
         assert p1_post == p1_pre
 
         # Comprobar que Mesa 5 quedó libre
@@ -177,6 +186,7 @@ def test_eliminar_item_comanda_recalculo(test_db: Path):
             ComandaItemAdd(producto_id=7, cantidad=1),  # 1 x 2200 = 2200
         ])
         cmd_pre = ComandaService.obtener_comanda_por_id(conn, cmd_id)
+        assert cmd_pre is not None
         assert cmd_pre["subtotal"] == 5800.0
         assert cmd_pre["total_items"] == 3
         assert len(cmd_pre["detalles"]) == 2
@@ -243,6 +253,7 @@ def test_rechazo_checkout_comanda_por_stock_insumos(test_db: Path):
 
         # La comanda debe seguir abierta / en preparación (no cobrada)
         cmd_db = ComandaService.obtener_comanda_por_id(conn, cmd["id"])
+        assert cmd_db is not None
         assert cmd_db["estado"] in ("Abierta", "En preparación")
 
         # La mesa debe seguir ocupada
@@ -309,6 +320,7 @@ def test_descuento_stock_al_servir_comanda_e_insumos(test_db: Path):
         assert cursor.fetchone()["stock_actual"] == leche_stock_inicial
 
         cmd_prep = ComandaService.obtener_comanda_por_id(conn, cmd["id"])
+        assert cmd_prep is not None
         assert cmd_prep["estado"] == "En preparación"
         assert cmd_prep["detalles"][0]["descontado_stock"] == 0
 
