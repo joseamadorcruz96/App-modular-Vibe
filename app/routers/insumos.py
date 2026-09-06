@@ -3,6 +3,7 @@ Router de la API REST para Insumos / Materias Primas y Recetas (Escandallos).
 """
 
 from typing import List
+# pyrefly: ignore [missing-import]
 from fastapi import APIRouter, HTTPException, Query, status
 
 from app.database import get_db, atomic_transaction
@@ -95,8 +96,8 @@ def reabastecer_insumo(insumo_id: int, data: InsumoReabastecer):
 
 
 @router.delete("/api/insumos/{insumo_id}")
-def eliminar_insumo(insumo_id: int):
-    """Elimina físicamente el insumo o lo desactiva lógicamente si está asignado a recetas."""
+def eliminar_insumo(insumo_id: int, forzar: bool = Query(False, description="Forzar eliminación física desvinculando de recetas existentes")):
+    """Elimina físicamente el insumo o lo desactiva lógicamente si está asignado a recetas (a menos que forzar sea True)."""
     with get_db() as conn:
         insumo = InsumoService.obtener_por_id(conn, insumo_id)
         if not insumo:
@@ -104,7 +105,7 @@ def eliminar_insumo(insumo_id: int):
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Insumo con ID {insumo_id} no encontrado."
             )
-        return InsumoService.eliminar_insumo(conn, insumo_id)
+        return InsumoService.eliminar_insumo(conn, insumo_id, forzar=forzar)
 
 
 # ==============================================================================

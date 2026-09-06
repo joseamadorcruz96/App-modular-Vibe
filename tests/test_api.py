@@ -247,6 +247,36 @@ def test_api_insumos_y_recetas():
     assert receta_data["margen_bruto"] > 0
     assert receta_data["margen_porcentaje"] > 0
 
+    # 5. Modificar insumo (PUT)
+    res_put = client.put(f"/api/insumos/{ins_id}", json={"costo_unitario": 42.0, "stock_minimo": 150.0})
+    assert res_put.status_code == 200
+    assert res_put.json()["costo_unitario"] == 42.0
+    assert res_put.json()["stock_minimo"] == 150.0
+
+    # 6. Guardar receta vía API (POST /api/productos/{id}/receta)
+    res_set_receta = client.post("/api/productos/2/receta", json={
+        "ingredientes": [{"insumo_id": ins_id, "cantidad": 10.0}]
+    })
+    assert res_set_receta.status_code == 200
+    receta_p2 = res_set_receta.json()
+    assert receta_p2["tiene_receta"] is True
+    assert len(receta_p2["ingredientes"]) == 1
+    assert receta_p2["costo_receta"] == 420.0  # 10 * 42
+
+    # 7. Eliminar receta vía API (DELETE /api/productos/{id}/receta)
+    res_del_receta = client.delete("/api/productos/2/receta")
+    assert res_del_receta.status_code == 200
+    assert "Receta eliminada" in res_del_receta.json()["mensaje"]
+
+    # 8. Eliminar insumo libre físicamente vía API (DELETE /api/insumos/{id})
+    res_del_ins = client.delete(f"/api/insumos/{ins_id}")
+    assert res_del_ins.status_code == 200
+    assert res_del_ins.json()["tipo_eliminacion"] == "fisica"
+
+    # 9. Consultar insumo inexistente debe arrojar 404
+    assert client.get(f"/api/insumos/{ins_id}").status_code == 404
+
+
 
 def test_api_comandas_ciclo_completo():
     """Valida el ciclo de vida de comandas por API: estado mesas, abrir, agregar ítems y checkout."""
@@ -295,3 +325,127 @@ def test_api_comandas_ciclo_completo():
     res_mesas_final = client.get("/api/comandas/mesas-estado")
     m1_final = next(m for m in res_mesas_final.json() if m["mesa"] == "Mesa 1")
     assert m1_final["ocupada"] is False
+
+
+def test_api_comandas_casos_borde():
+    """Valida colisión de mesa ocupada, eliminación de ítems y cancelación por API."""
+    client = TestClient(app)
+
+    # 1. Abrir comanda en Mesa 3
+    res1 = client.post("/api/comandas/abrir", json={"mesa": "Mesa 3", "cliente": "Cliente A"})
+    assert res1.status_code == 201
+    cmd_id = res1.json()["id"]
+
+    # 2. Intentar abrir en Mesa 3 ocupada -> 409 Conflict
+    res_dupe = client.post("/api/comandas/abrir", json={"mesa": "Mesa 3", "cliente": "Cliente B"})
+    assert res_dupe.status_code == 409
+    assert "ya tiene una comanda abierta" in res_dupe.json()["detail"]
+
+    # 3. Agregar 2 ítems
+    res_add = client.post(f"/api/comandas/{cmd_id}/items", json={
+        "items": [
+            {"producto_id": 1, "cantidad": 2},
+            {"producto_id": 7, "cantidad": 1}
+        ]
+    })
+    assert res_add.status_code == 200
+    cmd_data = res_add.json()
+    assert len(cmd_data["detalles"]) == 2
+    detalle_id = cmd_data["detalles"][0]["id"]
+
+    # 4. Eliminar un ítem individual de la comanda (DELETE)
+    res_del_item = client.delete(f"/api/comandas/{cmd_id}/items/{detalle_id}")
+    assert res_del_item.status_code == 200
+    cmd_post_del = res_del_item.json()
+    assert len(cmd_post_del["detalles"]) == 1
+
+    # 5. Cancelar comanda
+    res_cancel = client.post(f"/api/comandas/{cmd_id}/cancelar")
+    assert res_cancel.status_code == 200
+    assert res_cancel.json()["estado"] == "Cancelada"
+
+    # Mesa 3 debe estar libre
+    res_mesas = client.get("/api/comandas/mesas-estado")
+    m3 = next(m for m in res_mesas.json() if m["mesa"] == "Mesa 3")
+    assert m3["ocupada"] is False
+
+
+def test_api_insumo_eliminacion_forzada_y_producto_con_receta():
+    """Valida eliminación forzada de insumos y creación directa de productos con receta vía API."""
+    client = TestClient(app)
+
+    # 1. Obtener insumo INS-CHOCO (usado en CAF06)
+    res_ins = client.get("/api/insumos")
+    ins_choco = next(i for i in res_ins.json() if i["codigo"] == "INS-CHOCO")
+    choco_id = ins_choco["id"]
+
+    # 2. Eliminación normal (forzar=false) debe ser lógica
+    res_del_logica = client.delete(f"/api/insumos/{choco_id}")
+    assert res_del_logica.status_code == 200
+    assert res_del_logica.json()["tipo_eliminacion"] == "logica"
+
+    # Reactivar insumo
+    res_reactivar = client.put(f"/api/insumos/{choco_id}", json={"activo": 1})
+    assert res_reactivar.status_code == 200
+    assert res_reactivar.json()["activo"] == 1
+
+    # 3. Eliminación forzada (forzar=true) debe ser física y limpiar recetas
+    res_del_forzada = client.delete(f"/api/insumos/{choco_id}?forzar=true")
+    assert res_del_forzada.status_code == 200
+    assert res_del_forzada.json()["tipo_eliminacion"] == "fisica"
+    assert res_del_forzada.json()["recetas_desvinculadas"] >= 1
+
+    # Insumo ya no existe
+    assert client.get(f"/api/insumos/{choco_id}").status_code == 404
+
+    # 4. Crear producto nuevo con receta embebida
+    ins_leche = next(i for i in res_ins.json() if i["codigo"] == "INS-LECHE")
+    ins_cafe = next(i for i in res_ins.json() if i["codigo"] == "INS-CAFE")
+
+    nuevo_prod_receta = {
+        "codigo": "FLAT01",
+        "nombre": "Flat White Especial",
+        "stock_inicial": 25,
+        "costo_unitario": 0.0,
+        "precio_venta": 3100.0,
+        "receta": [
+            {"insumo_id": ins_cafe["id"], "cantidad": 20.0},
+            {"insumo_id": ins_leche["id"], "cantidad": 120.0}
+        ]
+    }
+    res_crear = client.post("/api/productos", json=nuevo_prod_receta)
+    assert res_crear.status_code == 201
+    prod_data = res_crear.json()
+    assert prod_data["tiene_receta"] is True
+    assert prod_data["total_insumos_receta"] == 2
+    assert prod_data["costo_unitario"] == 680.0  # (20 * 25 = 500) + (120 * 1.5 = 180)
+
+
+def test_api_sistema_limpieza_total_y_cargar_demo():
+    """Valida los endpoints de purga total del sistema y recarga de catálogo demo."""
+    client = TestClient(app)
+
+    # 1. Purgar base de datos completamente (requiere palabra_clave='borrar')
+    res_purga = client.post("/api/sistema/limpieza-total", json={"palabra_clave": "borrar"})
+    assert res_purga.status_code == 200
+    assert "restaurada al estado original" in res_purga.json()["mensaje"]
+
+    # Verificar que el catálogo de productos y de insumos está vacío
+    assert len(client.get("/api/productos").json()) == 0
+    assert len(client.get("/api/insumos").json()) == 0
+
+    # 2. Cargar semillas demo
+    res_demo = client.post("/api/sistema/cargar-demo")
+    assert res_demo.status_code == 200
+    data_demo = res_demo.json()
+    assert data_demo["productos_cargados"] >= 10
+    assert data_demo["insumos_cargados"] >= 10
+    assert data_demo["recetas_vinculadas"] >= 10
+
+    # Verificar que existen productos y están categorizados
+    prods = client.get("/api/productos").json()
+    assert len(prods) == data_demo["productos_cargados"]
+    assert any(p["codigo"] == "SAN01" for p in prods)
+    assert any(p["codigo"] == "CAF01" for p in prods)
+
+

@@ -20,6 +20,8 @@ window.Inventario = {
   },
 
   reabastecerInsumoSeleccionado: null,
+  editarInsumoSeleccionado: null,
+  nuevoProductoReceta: [],
 
   async init() {
     this.bindEvents();
@@ -72,6 +74,18 @@ window.Inventario = {
     const formReplenishInsumo = document.getElementById('form-replenish-insumo');
     if (formReplenishInsumo) {
       formReplenishInsumo.addEventListener('submit', (e) => this.handleReplenishInsumo(e));
+    }
+
+    // Formulario Modificar Insumo
+    const formEditInsumo = document.getElementById('form-edit-insumo');
+    if (formEditInsumo) {
+      formEditInsumo.addEventListener('submit', (e) => this.handleEditInsumo(e));
+    }
+
+    // Recálculo dinámico de margen en alta de producto
+    const newProdPrecioInput = document.getElementById('new-prod-precio');
+    if (newProdPrecioInput) {
+      newProdPrecioInput.addEventListener('input', () => this.updateNewProductRecipeMetrics());
     }
   },
 
@@ -138,6 +152,9 @@ window.Inventario = {
         : `<span class="stock-indicator ok">✓ ${prod.stock_actual}</span>`;
 
       const prodJson = JSON.stringify(prod).replace(/"/g, '&quot;');
+      const recipeBadge = prod.tiene_receta
+        ? `<span class="stock-indicator ok" style="font-size: 0.72rem; padding: 0.15rem 0.5rem;" title="Descuenta insumos automáticamente">🧪 Receta (${prod.total_insumos_receta})</span>`
+        : `<span style="font-size: 0.72rem; color: var(--text-dim); padding: 0.15rem 0.5rem;" title="Stock unitario directo">📦 Simple</span>`;
 
       return `
         <tr>
@@ -147,11 +164,14 @@ window.Inventario = {
           <td>${stockBadge}</td>
           <td style="font-family: var(--font-mono);">${App.formatMoney(prod.costo_unitario)}</td>
           <td style="font-family: var(--font-mono); font-weight: 700; color: var(--accent-gold);">${App.formatMoney(prod.precio_venta)}</td>
-          <td>
-            <button class="table-pill-btn" style="padding: 0.25rem 0.6rem; font-size: 0.75rem; border-color: var(--accent-gold); color: var(--accent-gold);"
-                    onclick="Inventario.openRecipeModal(${prod.id})" title="Gestionar receta y escandallo">
-              🧪 Receta
-            </button>
+          <td style="text-align: center;">
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 0.25rem;">
+              ${recipeBadge}
+              <button class="table-pill-btn" style="padding: 0.2rem 0.5rem; font-size: 0.72rem; border-color: var(--accent-gold); color: var(--accent-gold);"
+                      onclick="Inventario.openRecipeModal(${prod.id})" title="Gestionar receta y escandallo">
+                🧪 Receta
+              </button>
+            </div>
           </td>
           <td>
             <span style="font-size: 0.75rem; padding: 0.2rem 0.5rem; border-radius: var(--radius-full); ${prod.activo ? 'background: rgba(16,185,129,0.1); color: var(--success);' : 'background: rgba(239,68,68,0.1); color: var(--danger);'}">
@@ -207,6 +227,7 @@ window.Inventario = {
       const stockBadge = isCritical
         ? `<span class="stock-indicator critical">🚨 ${ins.stock_actual} ${ins.unidad_medida} (Bajo)</span>`
         : `<span class="stock-indicator ok">✓ ${ins.stock_actual} ${ins.unidad_medida}</span>`;
+      const insJson = JSON.stringify(ins).replace(/"/g, '&quot;');
 
       return `
         <tr>
@@ -222,12 +243,16 @@ window.Inventario = {
             </span>
           </td>
           <td>
-            <div style="display: flex; gap: 0.4rem; align-items: center;">
-              <button class="table-pill-btn" style="padding: 0.35rem 0.65rem; font-size: 0.75rem; min-height: 32px;"
+            <div style="display: flex; gap: 0.35rem; align-items: center; flex-wrap: nowrap;">
+              <button class="table-pill-btn" style="padding: 0.35rem 0.6rem; font-size: 0.75rem; min-height: 32px;"
+                      onclick="Inventario.openEditInsumoModal(${insJson})" title="Modificar Insumo">
+                ✏️ Editar
+              </button>
+              <button class="table-pill-btn" style="padding: 0.35rem 0.6rem; font-size: 0.75rem; min-height: 32px;"
                       onclick="Inventario.openReplenishInsumoModal(${ins.id}, '${ins.nombre.replace(/'/g, "\\'")}', ${ins.stock_actual}, '${ins.unidad_medida}')" title="Reabastecer">
                 ➕ Stock
               </button>
-              <button class="table-pill-btn" style="padding: 0.35rem 0.65rem; font-size: 0.75rem; min-height: 32px; border-color: rgba(239,68,68,0.3); color: var(--danger);"
+              <button class="table-pill-btn" style="padding: 0.35rem 0.6rem; font-size: 0.75rem; min-height: 32px; border-color: rgba(239,68,68,0.3); color: var(--danger);"
                       onclick="Inventario.handleDeleteInsumo(${ins.id}, '${ins.nombre.replace(/'/g, "\\'")}')" title="Eliminar Insumo">
                 🗑️ Borrar
               </button>
@@ -254,6 +279,11 @@ window.Inventario = {
       document.getElementById('recipe-modal-prod-title').innerHTML = `
         Producto: <strong style="color: #fff;">${receta.producto_nombre}</strong> (${receta.producto_codigo})
       `;
+
+      // Garantizar que la lista de insumos esté cargada
+      if (!this.insumos || this.insumos.length === 0) {
+        this.insumos = await API.getInsumos(false);
+      }
 
       // Cargar opciones en el select de insumos
       const selectInsumo = document.getElementById('recipe-add-insumo-select');
@@ -476,12 +506,78 @@ window.Inventario = {
     }
   },
 
-  async handleDeleteInsumo(id, nombre) {
-    if (!confirm(`¿Desea eliminar la materia prima '${nombre}'?`)) return;
+  openEditInsumoModal(ins) {
+    this.editarInsumoSeleccionado = ins.id;
+    document.getElementById('edit-insumo-id').value = ins.id;
+    document.getElementById('edit-insumo-codigo').value = ins.codigo;
+    document.getElementById('edit-insumo-nombre').value = ins.nombre;
+    document.getElementById('edit-insumo-unidad').value = ins.unidad_medida;
+    document.getElementById('edit-insumo-costo').value = ins.costo_unitario;
+    document.getElementById('edit-insumo-stock').value = ins.stock_actual;
+    document.getElementById('edit-insumo-minimo').value = ins.stock_minimo;
+    document.getElementById('edit-insumo-activo').value = String(ins.activo);
+    document.getElementById('modal-edit-insumo').classList.add('active');
+  },
+
+  closeEditInsumoModal() {
+    document.getElementById('modal-edit-insumo').classList.remove('active');
+  },
+
+  async handleEditInsumo(e) {
+    e.preventDefault();
+    if (!this.editarInsumoSeleccionado) return;
+
+    const id = this.editarInsumoSeleccionado;
+    const codigo = document.getElementById('edit-insumo-codigo').value.trim();
+    const nombre = document.getElementById('edit-insumo-nombre').value.trim();
+    const unidad_medida = document.getElementById('edit-insumo-unidad').value;
+    const costo_unitario = parseFloat(document.getElementById('edit-insumo-costo').value);
+    const stock_actual = parseFloat(document.getElementById('edit-insumo-stock').value);
+    const stock_minimo = parseFloat(document.getElementById('edit-insumo-minimo').value);
+    const activo = parseInt(document.getElementById('edit-insumo-activo').value, 10);
 
     try {
-      const res = await API.deleteInsumo(id);
-      App.showToast(res.mensaje, res.tipo_eliminacion === 'fisica' ? 'success' : 'info');
+      const insActualizado = await API.updateInsumo(id, {
+        codigo,
+        nombre,
+        unidad_medida,
+        costo_unitario,
+        stock_actual,
+        stock_minimo,
+        activo
+      });
+      App.showToast(`Materia prima '${insActualizado.nombre}' actualizada exitosamente`, 'success');
+      this.closeEditInsumoModal();
+      await this.load();
+    } catch (err) {
+      App.showToast(err.message, 'error');
+    }
+  },
+
+  async handleDeleteInsumo(id, nombre) {
+    const confirmacion = confirm(
+      `¿Desea eliminar la materia prima '${nombre}'?\n\n` +
+      `• Presione ACEPTAR para proceder.\n` +
+      `• Si el insumo está en recetas activas, se desactivará lógicamente o podrá forzar su eliminación definitiva.`
+    );
+    if (!confirmacion) return;
+
+    try {
+      const res = await API.deleteInsumo(id, false);
+      if (res.tipo_eliminacion === 'logica') {
+        const deseaForzar = confirm(
+          `El insumo '${nombre}' está asignado a recetas de productos y fue desactivado.\n\n` +
+          `¿Desea ELIMINARLO DEFINITIVAMENTE desvinculándolo de todas las recetas?`
+        );
+        if (deseaForzar) {
+          const resForzar = await API.deleteInsumo(id, true);
+          App.showToast(resForzar.mensaje, 'success');
+        } else {
+          App.showToast(res.mensaje, 'info');
+        }
+      } else {
+        App.showToast(res.mensaje, 'success');
+      }
       await this.load();
     } catch (err) {
       App.showToast(err.message, 'error');
@@ -493,11 +589,127 @@ window.Inventario = {
   // ==========================================================================
   openNewProductModal() {
     document.getElementById('form-new-product').reset();
+    this.nuevoProductoReceta = [];
+    const chkRecipe = document.getElementById('new-prod-has-recipe');
+    if (chkRecipe) chkRecipe.checked = false;
+    const builder = document.getElementById('new-prod-recipe-builder');
+    if (builder) builder.style.display = 'none';
+    this.updateNewProductRecipeMetrics();
+
+    // Poblar select de insumos
+    const selectInsumo = document.getElementById('new-prod-recipe-insumo-select');
+    if (selectInsumo && this.insumos) {
+      selectInsumo.innerHTML = this.insumos
+        .filter(i => i.activo)
+        .map(i => `<option value="${i.id}" data-unit="${i.unidad_medida}" data-cost="${i.costo_unitario}">${i.nombre} (${i.unidad_medida} - ${App.formatMoney(i.costo_unitario)})</option>`)
+        .join('');
+    }
+
     document.getElementById('modal-new-product').classList.add('active');
   },
 
   closeNewProductModal() {
     document.getElementById('modal-new-product').classList.remove('active');
+  },
+
+  toggleNewProductRecipe(enable) {
+    const builder = document.getElementById('new-prod-recipe-builder');
+    if (builder) {
+      builder.style.display = enable ? 'block' : 'none';
+    }
+    if (enable) {
+      const selectInsumo = document.getElementById('new-prod-recipe-insumo-select');
+      if (selectInsumo && this.insumos) {
+        selectInsumo.innerHTML = this.insumos
+          .filter(i => i.activo)
+          .map(i => `<option value="${i.id}" data-unit="${i.unidad_medida}" data-cost="${i.costo_unitario}">${i.nombre} (${i.unidad_medida} - ${App.formatMoney(i.costo_unitario)})</option>`)
+          .join('');
+      }
+      this.updateNewProductRecipeMetrics();
+    }
+  },
+
+  addNewProductIngredient() {
+    const select = document.getElementById('new-prod-recipe-insumo-select');
+    const cantInput = document.getElementById('new-prod-recipe-cant-input');
+    if (!select || !cantInput) return;
+
+    const insumoId = parseInt(select.value, 10);
+    const cantidad = parseFloat(cantInput.value);
+
+    if (isNaN(cantidad) || cantidad <= 0) {
+      App.showToast('Ingrese una cantidad válida mayor a cero', 'error');
+      return;
+    }
+
+    const insumoObj = this.insumos.find(i => i.id === insumoId);
+    if (!insumoObj) return;
+
+    const existente = this.nuevoProductoReceta.find(i => i.insumo_id === insumoId);
+    if (existente) {
+      existente.cantidad += cantidad;
+    } else {
+      this.nuevoProductoReceta.push({
+        insumo_id: insumoObj.id,
+        nombre: insumoObj.nombre,
+        unidad_medida: insumoObj.unidad_medida,
+        cantidad: cantidad,
+        costo_unitario: insumoObj.costo_unitario
+      });
+    }
+
+    cantInput.value = 10;
+    this.updateNewProductRecipeMetrics();
+  },
+
+  removeNewProductIngredient(idx) {
+    this.nuevoProductoReceta.splice(idx, 1);
+    this.updateNewProductRecipeMetrics();
+  },
+
+  updateNewProductRecipeMetrics() {
+    const tbody = document.getElementById('new-prod-recipe-table-body');
+    const costLabel = document.getElementById('new-prod-recipe-cost-label');
+    const marginLabel = document.getElementById('new-prod-recipe-margin-label');
+    const costoInput = document.getElementById('new-prod-costo');
+    const precioInput = document.getElementById('new-prod-precio');
+
+    let costoTotal = 0;
+    if (tbody) {
+      if (!this.nuevoProductoReceta || this.nuevoProductoReceta.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-dim); padding: 0.75rem;">Sin ingredientes añadidos aún.</td></tr>';
+      } else {
+        tbody.innerHTML = this.nuevoProductoReceta.map((item, idx) => {
+          const costoPorcion = item.cantidad * item.costo_unitario;
+          costoTotal += costoPorcion;
+          return `
+            <tr>
+              <td style="font-weight: 600;">${item.nombre}</td>
+              <td style="font-family: var(--font-mono); font-weight: 700;">${item.cantidad}</td>
+              <td style="color: var(--text-muted);">${item.unidad_medida}</td>
+              <td style="font-family: var(--font-mono); color: var(--accent-gold);">${App.formatMoney(costoPorcion)}</td>
+              <td>
+                <button type="button" class="cart-item-remove" onclick="Inventario.removeNewProductIngredient(${idx})" title="Quitar">✕</button>
+              </td>
+            </tr>
+          `;
+        }).join('');
+      }
+    }
+
+    if (costLabel) costLabel.textContent = App.formatMoney(costoTotal);
+    if (costoInput && document.getElementById('new-prod-has-recipe') && document.getElementById('new-prod-has-recipe').checked && costoTotal > 0) {
+      costoInput.value = costoTotal.toFixed(2);
+    }
+
+    const precioVenta = precioInput ? (parseFloat(precioInput.value) || 0) : 0;
+    const margenBruto = precioVenta - costoTotal;
+    const margenPct = precioVenta > 0 ? (margenBruto / precioVenta * 100) : 0;
+
+    if (marginLabel) {
+      marginLabel.textContent = `${margenPct.toFixed(1)}%`;
+      marginLabel.style.color = margenPct >= 60 ? '#34d399' : (margenPct >= 30 ? '#fbbf24' : '#f87171');
+    }
   },
 
   async handleCreateProduct(e) {
@@ -508,15 +720,21 @@ window.Inventario = {
     const costo_unitario = parseFloat(document.getElementById('new-prod-costo').value);
     const precio_venta = parseFloat(document.getElementById('new-prod-precio').value);
 
+    const hasRecipe = document.getElementById('new-prod-has-recipe') && document.getElementById('new-prod-has-recipe').checked;
+    const recetaPayload = hasRecipe && this.nuevoProductoReceta.length > 0
+      ? this.nuevoProductoReceta.map(r => ({ insumo_id: r.insumo_id, cantidad: r.cantidad }))
+      : undefined;
+
     try {
       await API.createProduct({
         codigo,
         nombre,
         stock_inicial,
         costo_unitario,
-        precio_venta
+        precio_venta,
+        receta: recetaPayload
       });
-      App.showToast(`Producto '${nombre}' creado exitosamente`, 'success');
+      App.showToast(`Producto '${nombre}' creado exitosamente` + (hasRecipe ? ' con receta' : ''), 'success');
       this.closeNewProductModal();
       await this.load();
       if (window.TPV) window.TPV.loadProducts();

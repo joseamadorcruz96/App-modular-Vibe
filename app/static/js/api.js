@@ -200,8 +200,9 @@ const API = {
     return await res.json();
   },
 
-  async deleteInsumo(id) {
-    const res = await fetch(`/api/insumos/${id}`, { method: 'DELETE' });
+  async deleteInsumo(id, forzar = false) {
+    const url = forzar ? `/api/insumos/${id}?forzar=true` : `/api/insumos/${id}`;
+    const res = await fetch(url, { method: 'DELETE' });
     if (!res.ok) throw new Error('Error al eliminar insumo');
     return await res.json();
   },

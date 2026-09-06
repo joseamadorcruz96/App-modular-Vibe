@@ -3,6 +3,7 @@ Router de la API REST para Comandas de Salón (Mesas Abiertas).
 """
 
 from typing import List
+# pyrefly: ignore [missing-import]
 from fastapi import APIRouter, HTTPException, status
 
 from app.database import get_db, atomic_transaction

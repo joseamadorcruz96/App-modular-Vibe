@@ -5,6 +5,7 @@ Controla el reinicio global de stock a valores iniciales y la restauración
 de fábrica de la base de datos protegida mediante palabra de seguridad.
 """
 
+# pyrefly: ignore [missing-import]
 from fastapi import APIRouter, HTTPException, status
 from typing import Dict, Any
 
@@ -69,11 +70,19 @@ def cargar_demo() -> Dict[str, Any]:
     Inserta las semillas de prueba opcionales de cafetería desde seeds.sql.
     """
     try:
-        total_prods = CajaService.cargar_semillas_demo(config.DB_PATH, config.SEEDS_PATH)
+        res_demo = CajaService.cargar_semillas_demo(config.DB_PATH, config.SEEDS_PATH)
+        prods = res_demo["productos"]
+        insumos = res_demo["insumos"]
+        recetas = res_demo["recetas"]
         return {
             "status": "success",
-            "mensaje": f"Catálogo de demostración cargado exitosamente ({total_prods} productos disponibles).",
-            "total_productos": total_prods
+            "mensaje": f"Catálogo demo cargado: {prods} productos, {insumos} insumos y {recetas} recetas vinculadas.",
+            "total_productos": prods,
+            "total_insumos": insumos,
+            "total_recetas": recetas,
+            "productos_cargados": prods,
+            "insumos_cargados": insumos,
+            "recetas_vinculadas": recetas
         }
     except Exception as e:
         raise HTTPException(

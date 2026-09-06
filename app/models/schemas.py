@@ -35,9 +35,15 @@ class ProductoBase(BaseModel):
         return v.strip()
 
 
+class RecetaItemCreate(BaseModel):
+    """Ingrediente individual requerido en la receta de un producto."""
+    insumo_id: int = Field(..., gt=0)
+    cantidad: float = Field(..., gt=0.0, description="Cantidad de insumo por 1 unidad de producto")
+
+
 class ProductoCreate(ProductoBase):
     """Esquema de solicitud para dar de alta un producto."""
-    pass
+    receta: Optional[List[RecetaItemCreate]] = Field(None, description="Lista opcional de insumos para la receta")
 
 
 class ProductoUpdate(BaseModel):
@@ -74,6 +80,8 @@ class ProductoResponse(ProductoBase):
     stock_actual: int = Field(..., ge=0)
     activo: int = Field(..., ge=0, le=1)
     alerta_stock: bool = Field(False, description="True si stock_actual <= 5")
+    tiene_receta: bool = Field(False, description="Indica si el producto tiene receta de insumos")
+    total_insumos_receta: int = Field(0, description="Cantidad de insumos en su receta")
     creado_en: Optional[str] = None
     actualizado_en: Optional[str] = None
 
@@ -251,12 +259,6 @@ class InsumoResponse(InsumoBase):
     alerta_stock: bool = False
     creado_en: Optional[str] = None
     actualizado_en: Optional[str] = None
-
-
-class RecetaItemCreate(BaseModel):
-    """Ingrediente individual requerido en la receta de un producto."""
-    insumo_id: int = Field(..., gt=0)
-    cantidad: float = Field(..., gt=0.0, description="Cantidad de insumo por 1 unidad de producto")
 
 
 class RecetaConfig(BaseModel):

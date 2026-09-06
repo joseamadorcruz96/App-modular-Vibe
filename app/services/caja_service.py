@@ -184,7 +184,17 @@ class CajaService:
         try:
             cursor = conn.cursor()
             cursor.execute("PRAGMA foreign_keys = OFF;")
-            tablas = ["pedido_detalles", "pedidos", "productos", "configuracion", "cierres_caja"]
+            tablas = [
+                "receta_detalles",
+                "comanda_detalles",
+                "comandas",
+                "pedido_detalles",
+                "pedidos",
+                "productos",
+                "insumos",
+                "configuracion",
+                "cierres_caja"
+            ]
             for tabla in tablas:
                 cursor.execute(f"DROP TABLE IF EXISTS {tabla};")
             conn.commit()
@@ -193,21 +203,25 @@ class CajaService:
 
         # Re-ejecutar schema
         init_db(database_path, schema_file)
+        return {
+            "status": "success",
+            "mensaje": "Base de datos recreada e inicializada desde cero."
+        }
 
     @staticmethod
     def cargar_semillas_demo(
         database_path: Optional[Path] = None,
         seeds_file: Optional[Path] = None
-    ) -> int:
+    ) -> Dict[str, int]:
         """
-        Carga las semillas de productos de demostración desde seeds.sql.
+        Carga las semillas de productos, insumos y recetas de demostración desde seeds.sql.
 
         Parámetros:
             database_path (Optional[Path]): Ruta de la base de datos.
             seeds_file (Optional[Path]): Archivo SQL de semillas.
 
         Retorna:
-            int: Cantidad de productos en el catálogo tras la inserción.
+            Dict[str, int]: Conteo de productos, insumos y recetas cargadas.
         """
         if database_path is None:
             database_path = config.DB_PATH
@@ -226,6 +240,15 @@ class CajaService:
             conn.commit()
             cursor = conn.cursor()
             cursor.execute("SELECT COUNT(*) FROM productos;")
-            return cursor.fetchone()[0]
+            total_prods = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM insumos;")
+            total_insumos = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(DISTINCT producto_id) FROM receta_detalles;")
+            total_recetas = cursor.fetchone()[0]
+            return {
+                "productos": total_prods,
+                "insumos": total_insumos,
+                "recetas": total_recetas
+            }
         finally:
             conn.close()

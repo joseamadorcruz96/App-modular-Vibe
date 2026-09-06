@@ -31,22 +31,24 @@ class ProductoService:
             List[Dict[str, Any]]: Lista de productos con el indicador booleano alerta_stock (<= 5).
         """
         query = """
-            SELECT id, codigo, nombre, stock_inicial, stock_actual, costo_unitario,
-                   precio_venta, activo, creado_en, actualizado_en
-            FROM productos
+            SELECT p.id, p.codigo, p.nombre, p.stock_inicial, p.stock_actual, p.costo_unitario,
+                   p.precio_venta, p.activo, p.creado_en, p.actualizado_en,
+                   COUNT(rd.insumo_id) AS total_insumos_receta
+            FROM productos p
+            LEFT JOIN receta_detalles rd ON rd.producto_id = p.id
             WHERE 1=1
         """
         params: List[Any] = []
 
         if solo_activos:
-            query += " AND activo = 1"
+            query += " AND p.activo = 1"
 
         if busqueda and busqueda.strip():
             filtro = f"%{busqueda.strip()}%"
-            query += " AND (codigo LIKE ? OR nombre LIKE ?)"
+            query += " AND (p.codigo LIKE ? OR p.nombre LIKE ?)"
             params.extend([filtro, filtro])
 
-        query += " ORDER BY activo DESC, nombre ASC;"
+        query += " GROUP BY p.id ORDER BY p.activo DESC, p.nombre ASC;"
 
         cursor = conn.cursor()
         cursor.execute(query, params)
@@ -56,6 +58,9 @@ class ProductoService:
         for row in rows:
             prod_dict = dict(row)
             prod_dict["alerta_stock"] = (prod_dict["stock_actual"] <= 5 and prod_dict["activo"] == 1)
+            total_ins = prod_dict.get("total_insumos_receta", 0)
+            prod_dict["tiene_receta"] = (total_ins > 0)
+            prod_dict["total_insumos_receta"] = total_ins
             resultado.append(prod_dict)
 
         return resultado
@@ -75,10 +80,13 @@ class ProductoService:
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT id, codigo, nombre, stock_inicial, stock_actual, costo_unitario,
-                   precio_venta, activo, creado_en, actualizado_en
-            FROM productos
-            WHERE id = ?;
+            SELECT p.id, p.codigo, p.nombre, p.stock_inicial, p.stock_actual, p.costo_unitario,
+                   p.precio_venta, p.activo, p.creado_en, p.actualizado_en,
+                   COUNT(rd.insumo_id) AS total_insumos_receta
+            FROM productos p
+            LEFT JOIN receta_detalles rd ON rd.producto_id = p.id
+            WHERE p.id = ?
+            GROUP BY p.id;
             """,
             (producto_id,)
         )
@@ -88,19 +96,22 @@ class ProductoService:
 
         prod_dict = dict(row)
         prod_dict["alerta_stock"] = (prod_dict["stock_actual"] <= 5 and prod_dict["activo"] == 1)
+        total_ins = prod_dict.get("total_insumos_receta", 0)
+        prod_dict["tiene_receta"] = (total_ins > 0)
+        prod_dict["total_insumos_receta"] = total_ins
         return prod_dict
 
     @staticmethod
     def crear_producto(conn: sqlite3.Connection, data: ProductoCreate) -> Dict[str, Any]:
         """
-        Inserta un nuevo producto en el catálogo.
+        Inserta un nuevo producto en el catálogo con soporte opcional de receta de insumos.
 
         Parámetros:
             conn (sqlite3.Connection): Conexión activa a la base de datos.
             data (ProductoCreate): Datos validados del producto a crear.
 
         Retorna:
-            Dict[str, Any]: Registro recién insertado con su ID generado.
+            Dict[str, Any]: Registro recién insertado con su ID generado y receta vinculada.
 
         Lanza:
             sqlite3.IntegrityError: Si el código ya existe o se vulnera un CHECK constraint.
@@ -122,6 +133,13 @@ class ProductoService:
             )
         )
         nuevo_id = cursor.lastrowid
+        cursor.close()
+
+        # Si se incluyó receta en la solicitud, guardarla atómicamente
+        if data.receta and len(data.receta) > 0:
+            from app.services.insumo_service import InsumoService
+            InsumoService.guardar_receta_producto(conn, nuevo_id, data.receta)
+
         return ProductoService.obtener_por_id(conn, nuevo_id)  # type: ignore
 
     @staticmethod

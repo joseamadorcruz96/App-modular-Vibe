@@ -7,9 +7,13 @@ e inicializa la base de datos de forma automática en el arranque del servidor.
 
 from contextlib import asynccontextmanager
 from pathlib import Path
+# pyrefly: ignore [missing-import]
 from fastapi import FastAPI
+# pyrefly: ignore [missing-import]
 from fastapi.middleware.cors import CORSMiddleware
+# pyrefly: ignore [missing-import]
 from fastapi.staticfiles import StaticFiles
+# pyrefly: ignore [missing-import]
 from fastapi.responses import FileResponse
 
 from app.config import APP_TITLE, APP_VERSION, DB_PATH, SCHEMA_PATH

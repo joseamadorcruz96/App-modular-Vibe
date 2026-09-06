@@ -134,23 +134,36 @@ class InsumoService:
         return InsumoService.obtener_por_id(conn, insumo_id)
 
     @staticmethod
-    def eliminar_insumo(conn: sqlite3.Connection, insumo_id: int) -> Dict[str, Any]:
+    def eliminar_insumo(conn: sqlite3.Connection, insumo_id: int, forzar: bool = False) -> Dict[str, Any]:
         """
-        Elimina físicamente el insumo si no forma parte de ninguna receta.
-        Si está referenciado en recetas existentes, realiza una desactivación lógica (activo = 0).
+        Elimina el insumo.
+        - Si forzar es True: elimina las referencias en receta_detalles y elimina físicamente el insumo.
+        - Si forzar es False: si está en recetas, lo desactiva lógicamente (activo = 0); si no está en recetas, lo elimina físicamente.
         """
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM receta_detalles WHERE insumo_id = ?;", (insumo_id,))
         en_recetas = cursor.fetchone()[0]
 
         if en_recetas > 0:
-            cursor.execute("UPDATE insumos SET activo = 0 WHERE id = ?;", (insumo_id,))
-            cursor.close()
-            return {
-                "id": insumo_id,
-                "tipo_eliminacion": "logica",
-                "mensaje": f"El insumo está asignado a {en_recetas} receta(s). Se ha desactivado del catálogo."
-            }
+            if forzar:
+                cursor.execute("DELETE FROM receta_detalles WHERE insumo_id = ?;", (insumo_id,))
+                cursor.execute("DELETE FROM insumos WHERE id = ?;", (insumo_id,))
+                cursor.close()
+                return {
+                    "id": insumo_id,
+                    "tipo_eliminacion": "fisica",
+                    "recetas_desvinculadas": en_recetas,
+                    "mensaje": f"Insumo y sus {en_recetas} referencias en recetas han sido eliminados definitivamente."
+                }
+            else:
+                cursor.execute("UPDATE insumos SET activo = 0 WHERE id = ?;", (insumo_id,))
+                cursor.close()
+                return {
+                    "id": insumo_id,
+                    "tipo_eliminacion": "logica",
+                    "recetas_desvinculadas": en_recetas,
+                    "mensaje": f"El insumo está asignado a {en_recetas} receta(s). Se ha desactivado del catálogo."
+                }
 
         cursor.execute("DELETE FROM insumos WHERE id = ?;", (insumo_id,))
         cursor.close()
