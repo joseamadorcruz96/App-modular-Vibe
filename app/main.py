@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse
 
 from app.config import APP_TITLE, APP_VERSION, DB_PATH, SCHEMA_PATH
 from app.database import init_db
-from app.routers import configuracion, productos, pedidos, caja, sistema
+from app.routers import configuracion, productos, pedidos, caja, sistema, insumos, comandas
 
 
 @asynccontextmanager
@@ -50,6 +50,8 @@ app.include_router(productos.router)
 app.include_router(pedidos.router)
 app.include_router(caja.router)
 app.include_router(sistema.router)
+app.include_router(insumos.router)
+app.include_router(comandas.router)
 
 # Montar directorio de recursos estáticos del Frontend
 STATIC_DIR = Path(__file__).resolve().parent / "static"

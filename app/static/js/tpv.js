@@ -1,12 +1,15 @@
 /**
  * CoffeePOS - Módulo TPV (Terminal Punto de Venta & Comandera)
- * Gestiona el flujo táctil de mesas, catálogo con buscador, carrito temporal y checkout atómico.
+ * Gestiona el flujo táctil de mesas, comanda persistente de salón,
+ * catálogo con buscador, carrito temporal y checkout atómico.
  */
 
 window.TPV = {
   mesaSeleccionada: 'Barra / Para Llevar',
   productos: [],
   carrito: [], // { producto, cantidad }
+  mesasEstado: [], // Estados de mesas del salón desde API
+  comandaActiva: null, // Comanda abierta en la mesa seleccionada (si aplica)
   medioPagoSeleccionado: 'Efectivo',
 
   async init() {
@@ -23,10 +26,22 @@ window.TPV = {
       });
     }
 
-    // Botón de Cobrar
+    // Botón principal de Cobro / Acción
     const btnCheckout = document.getElementById('btn-open-checkout');
     if (btnCheckout) {
-      btnCheckout.addEventListener('click', () => this.openCheckoutModal());
+      btnCheckout.addEventListener('click', () => this.handleMainAction());
+    }
+
+    // Botón de Enviar / Cargar a Mesa
+    const btnCargarMesa = document.getElementById('btn-cargar-a-mesa');
+    if (btnCargarMesa) {
+      btnCargarMesa.addEventListener('click', () => this.handleEnviarAMesa());
+    }
+
+    // Botón de Cancelar Comanda de Mesa
+    const btnCancelarCmd = document.getElementById('btn-cancelar-mesa-cmd');
+    if (btnCancelarCmd) {
+      btnCancelarCmd.addEventListener('click', () => this.handleCancelarComanda());
     }
 
     // Selector de Medio de Pago en Modal
@@ -47,8 +62,19 @@ window.TPV = {
   },
 
   async refresh() {
+    await this.loadMesasEstado();
     await this.renderTables();
     await this.loadProducts();
+    await this.syncSelectedTable();
+  },
+
+  async loadMesasEstado() {
+    try {
+      this.mesasEstado = await API.getMesasEstado();
+    } catch (err) {
+      console.error('Error obteniendo estado de mesas:', err);
+      this.mesasEstado = [];
+    }
   },
 
   async renderTables() {
@@ -56,9 +82,6 @@ window.TPV = {
     if (!container) return;
 
     try {
-      const cfg = await API.getConfig();
-      const numMesas = cfg.mesas_activas || 8;
-
       let html = `
         <button class="table-pill-btn ${this.mesaSeleccionada === 'Barra / Para Llevar' ? 'selected' : ''}" 
                 onclick="TPV.selectMesa('Barra / Para Llevar')">
@@ -66,13 +89,19 @@ window.TPV = {
         </button>
       `;
 
-      for (let i = 1; i <= numMesas; i++) {
-        const mesaName = `Mesa ${i}`;
-        const isSelected = this.mesaSeleccionada === mesaName;
+      for (const m of this.mesasEstado) {
+        const isSelected = this.mesaSeleccionada === m.mesa;
+        const ocupada = m.ocupada;
+        const badgeColor = ocupada ? '#f59e0b' : '#10b981';
+        const label = ocupada 
+          ? `🟠 ${m.mesa} (${App.formatMoney(m.subtotal)})`
+          : `🟢 ${m.mesa}`;
+
         html += `
-          <button class="table-pill-btn ${isSelected ? 'selected' : ''}" 
-                  onclick="TPV.selectMesa('${mesaName}')">
-            🪑 Mesa ${i}
+          <button class="table-pill-btn ${isSelected ? 'selected' : ''} ${ocupada ? 'occupied-table' : ''}" 
+                  style="${ocupada ? 'border-color: #f59e0b; color: #f59e0b;' : ''}"
+                  onclick="TPV.selectMesa('${m.mesa}')">
+            ${label}
           </button>
         `;
       }
@@ -84,11 +113,52 @@ window.TPV = {
     }
   },
 
-  selectMesa(mesa) {
+  async selectMesa(mesa) {
     this.mesaSeleccionada = mesa;
     this.renderTables();
     document.getElementById('cart-selected-table').textContent = mesa;
-    App.showToast(`Mesa seleccionada: ${mesa}`, 'info');
+    await this.syncSelectedTable();
+  },
+
+  async syncSelectedTable() {
+    const banner = document.getElementById('mesa-status-banner');
+    const badgeInd = document.getElementById('mesa-badge-indicador');
+    const estadoTexto = document.getElementById('mesa-estado-texto');
+    const subtotalText = document.getElementById('mesa-comanda-subtotal');
+    const mesaActionsGroup = document.getElementById('mesa-actions-group');
+    const btnCargarMesa = document.getElementById('btn-cargar-a-mesa');
+
+    if (this.mesaSeleccionada === 'Barra / Para Llevar') {
+      if (banner) banner.style.display = 'none';
+      if (mesaActionsGroup) mesaActionsGroup.style.display = 'none';
+      this.comandaActiva = null;
+      this.renderCart();
+      return;
+    }
+
+    if (banner) banner.style.display = 'flex';
+    if (mesaActionsGroup) mesaActionsGroup.style.display = 'flex';
+
+    // Buscar comanda activa en el backend
+    try {
+      this.comandaActiva = await API.getComandaMesa(this.mesaSeleccionada);
+    } catch (err) {
+      this.comandaActiva = null;
+    }
+
+    if (this.comandaActiva) {
+      if (badgeInd) badgeInd.style.background = '#f59e0b';
+      if (estadoTexto) estadoTexto.textContent = `${this.mesaSeleccionada} (En Consumo - ${this.comandaActiva.cliente})`;
+      if (subtotalText) subtotalText.textContent = `Consumo: ${App.formatMoney(this.comandaActiva.subtotal)}`;
+      if (btnCargarMesa) btnCargarMesa.textContent = '➕ Agregar a Mesa';
+    } else {
+      if (badgeInd) badgeInd.style.background = '#10b981';
+      if (estadoTexto) estadoTexto.textContent = `${this.mesaSeleccionada} (Libre)`;
+      if (subtotalText) subtotalText.textContent = '$0';
+      if (btnCargarMesa) btnCargarMesa.textContent = '📝 Abrir y Cargar Mesa';
+    }
+
+    this.renderCart();
   },
 
   async loadProducts() {
@@ -196,53 +266,184 @@ window.TPV = {
     const listEl = document.getElementById('tpv-cart-items');
     const totalEl = document.getElementById('tpv-cart-total');
     const btnCheckout = document.getElementById('btn-open-checkout');
+    const btnCargarMesa = document.getElementById('btn-cargar-a-mesa');
+    const btnCancelarCmd = document.getElementById('btn-cancelar-mesa-cmd');
     if (!listEl || !totalEl) return;
 
-    if (this.carrito.length === 0) {
+    let subtotalCarrito = this.carrito.reduce((acc, i) => acc + (i.producto.precio_venta * i.cantidad), 0);
+    let subtotalComanda = this.comandaActiva ? this.comandaActiva.subtotal : 0;
+    let granTotal = subtotalCarrito + subtotalComanda;
+
+    // Renderizar ítems ya guardados en comanda + ítems nuevos por enviar
+    let html = '';
+
+    if (this.comandaActiva && this.comandaActiva.detalles.length > 0) {
+      html += `
+        <div style="font-size: 0.75rem; font-weight: 700; color: var(--accent-gold); text-transform: uppercase; padding: 0.4rem 0; border-bottom: 1px dashed var(--border-subtle);">
+          Consumo ya registrado en mesa (${this.comandaActiva.numero_comanda}):
+        </div>
+      `;
+      html += this.comandaActiva.detalles.map(item => `
+        <div class="cart-item-row" style="opacity: 0.85; background: rgba(255,255,255,0.02);">
+          <div class="cart-item-info">
+            <div class="cart-item-name">📌 ${item.nombre}</div>
+            <div class="cart-item-unit-price">${item.cantidad}x ${App.formatMoney(item.precio_unitario)}</div>
+          </div>
+          <div class="cart-item-subtotal">${App.formatMoney(item.subtotal)}</div>
+          <button class="cart-item-remove" onclick="TPV.removeComandaItem(${item.id})" title="Quitar de la mesa">🗑️</button>
+        </div>
+      `).join('');
+    }
+
+    if (this.carrito.length > 0) {
+      if (this.comandaActiva) {
+        html += `
+          <div style="font-size: 0.75rem; font-weight: 700; color: #34d399; text-transform: uppercase; padding: 0.4rem 0; margin-top: 0.5rem; border-bottom: 1px dashed var(--border-subtle);">
+            Nuevos ítems por enviar a mesa:
+          </div>
+        `;
+      }
+      html += this.carrito.map(item => {
+        const subtotal = item.producto.precio_venta * item.cantidad;
+        return `
+          <div class="cart-item-row">
+            <div class="cart-item-info">
+              <div class="cart-item-name">${item.producto.nombre}</div>
+              <div class="cart-item-unit-price">${App.formatMoney(item.producto.precio_venta)} c/u</div>
+            </div>
+            <div class="cart-stepper">
+              <button class="stepper-btn" onclick="TPV.updateQuantity(${item.producto.id}, -1)">−</button>
+              <span class="stepper-value">${item.cantidad}</span>
+              <button class="stepper-btn" onclick="TPV.updateQuantity(${item.producto.id}, 1)">+</button>
+            </div>
+            <div class="cart-item-subtotal">${App.formatMoney(subtotal)}</div>
+            <button class="cart-item-remove" onclick="TPV.removeFromCart(${item.producto.id})" title="Eliminar">🗑️</button>
+          </div>
+        `;
+      }).join('');
+    }
+
+    if (!this.comandaActiva && this.carrito.length === 0) {
       listEl.innerHTML = `
         <div class="cart-empty-state">
           <div class="icon">🛒</div>
           <p style="font-weight: 600;">Comanda vacía</p>
-          <span style="font-size: 0.8rem;">Seleccione productos para comenzar el ticket.</span>
+          <span style="font-size: 0.8rem;">Seleccione productos para comenzar el pedido.</span>
         </div>
       `;
       totalEl.textContent = App.formatMoney(0);
-      if (btnCheckout) btnCheckout.disabled = true;
+      if (btnCheckout) {
+        btnCheckout.disabled = true;
+        btnCheckout.innerHTML = '<span>⚡</span><span>COBRAR TICKET</span>';
+      }
+      if (btnCargarMesa) btnCargarMesa.disabled = true;
+      if (btnCancelarCmd) btnCancelarCmd.disabled = true;
       return;
     }
 
-    let total = 0;
-    listEl.innerHTML = this.carrito.map(item => {
-      const subtotal = item.producto.precio_venta * item.cantidad;
-      total += subtotal;
+    listEl.innerHTML = html;
+    totalEl.textContent = App.formatMoney(granTotal);
 
-      return `
-        <div class="cart-item-row">
-          <div class="cart-item-info">
-            <div class="cart-item-name">${item.producto.nombre}</div>
-            <div class="cart-item-unit-price">${App.formatMoney(item.producto.precio_venta)} c/u</div>
-          </div>
-          <div class="cart-stepper">
-            <button class="stepper-btn" onclick="TPV.updateQuantity(${item.producto.id}, -1)">−</button>
-            <span class="stepper-value">${item.cantidad}</span>
-            <button class="stepper-btn" onclick="TPV.updateQuantity(${item.producto.id}, 1)">+</button>
-          </div>
-          <div class="cart-item-subtotal">${App.formatMoney(subtotal)}</div>
-          <button class="cart-item-remove" onclick="TPV.removeFromCart(${item.producto.id})" title="Eliminar">🗑️</button>
-        </div>
-      `;
-    }).join('');
+    // Ajuste dinámico de botones
+    if (btnCheckout) {
+      if (this.comandaActiva) {
+        btnCheckout.disabled = false;
+        btnCheckout.innerHTML = `<span>💳</span><span>COBRAR MESA (${App.formatMoney(granTotal)})</span>`;
+      } else {
+        btnCheckout.disabled = (this.carrito.length === 0);
+        btnCheckout.innerHTML = '<span>⚡</span><span>COBRAR DIRECTO</span>';
+      }
+    }
 
-    totalEl.textContent = App.formatMoney(total);
-    if (btnCheckout) btnCheckout.disabled = false;
+    if (btnCargarMesa) {
+      btnCargarMesa.disabled = (this.carrito.length === 0);
+    }
+
+    if (btnCancelarCmd) {
+      btnCancelarCmd.disabled = (!this.comandaActiva);
+    }
+  },
+
+  async handleMainAction() {
+    // Si la mesa tiene comanda activa y además hay ítems en carrito, enviar primero los ítems
+    if (this.comandaActiva && this.carrito.length > 0) {
+      await this.handleEnviarAMesa(false);
+    }
+    this.openCheckoutModal();
+  },
+
+  async handleEnviarAMesa(mostrarNotificacion = true) {
+    if (this.carrito.length === 0) {
+      App.showToast('Agregue productos al carrito antes de enviar a la mesa.', 'warning');
+      return;
+    }
+
+    const clienteInput = document.getElementById('checkout-cliente-input');
+    const cliente = clienteInput ? clienteInput.value.trim() : 'Consumidor Final';
+
+    try {
+      let comandaId;
+      if (!this.comandaActiva) {
+        // 1. Abrir comanda en la mesa
+        const nuevaCmd = await API.openComanda(this.mesaSeleccionada, cliente || 'Consumidor Final');
+        comandaId = nuevaCmd.id;
+      } else {
+        comandaId = this.comandaActiva.id;
+      }
+
+      // 2. Agregar ítems del carrito
+      const itemsPayload = this.carrito.map(i => ({
+        producto_id: i.producto.id,
+        cantidad: i.cantidad
+      }));
+      await API.addComandaItems(comandaId, itemsPayload);
+
+      this.clearCart();
+      await this.refresh();
+
+      if (mostrarNotificacion) {
+        App.showToast(`Productos cargados a ${this.mesaSeleccionada}`, 'success');
+      }
+    } catch (err) {
+      App.showToast(err.message, 'error');
+    }
+  },
+
+  async removeComandaItem(detalleId) {
+    if (!this.comandaActiva) return;
+    if (!confirm('¿Desea quitar este producto de la mesa?')) return;
+
+    try {
+      await API.removeComandaItem(this.comandaActiva.id, detalleId);
+      App.showToast('Producto retirado de la mesa', 'info');
+      await this.refresh();
+    } catch (err) {
+      App.showToast(err.message, 'error');
+    }
+  },
+
+  async handleCancelarComanda() {
+    if (!this.comandaActiva) return;
+    if (!confirm(`¿Está seguro de cancelar la comanda de ${this.mesaSeleccionada}? La mesa quedará libre.`)) return;
+
+    try {
+      await API.cancelComanda(this.comandaActiva.id);
+      App.showToast(`Comanda de ${this.mesaSeleccionada} cancelada`, 'info');
+      this.clearCart();
+      await this.refresh();
+    } catch (err) {
+      App.showToast(err.message, 'error');
+    }
   },
 
   openCheckoutModal() {
-    if (this.carrito.length === 0) return;
+    const totalCarrito = this.carrito.reduce((acc, i) => acc + (i.producto.precio_venta * i.cantidad), 0);
+    const totalComanda = this.comandaActiva ? this.comandaActiva.subtotal : 0;
+    const total = totalCarrito + totalComanda;
+
+    if (total <= 0) return;
 
     const modal = document.getElementById('modal-checkout');
-    const total = this.carrito.reduce((acc, i) => acc + (i.producto.precio_venta * i.cantidad), 0);
-
     document.getElementById('checkout-modal-mesa').textContent = this.mesaSeleccionada;
     document.getElementById('checkout-modal-total').textContent = App.formatMoney(total);
 
@@ -261,24 +462,45 @@ window.TPV = {
     btn.disabled = true;
     btn.textContent = 'Procesando Transacción...';
 
-    const payload = {
-      mesa: this.mesaSeleccionada,
-      cliente: cliente || 'Consumidor Final',
-      medio_pago: this.medioPagoSeleccionado,
-      items: this.carrito.map(i => ({
-        producto_id: i.producto.id,
-        cantidad: i.cantidad
-      }))
-    };
-
     try {
-      const ticket = await API.checkout(payload);
+      let ticket;
+
+      if (this.comandaActiva) {
+        // Liquidar comanda abierta
+        // Si había algo extra en el carrito, se añade antes
+        if (this.carrito.length > 0) {
+          const itemsPayload = this.carrito.map(i => ({
+            producto_id: i.producto.id,
+            cantidad: i.cantidad
+          }));
+          await API.addComandaItems(this.comandaActiva.id, itemsPayload);
+          this.clearCart();
+        }
+
+        ticket = await API.checkoutComanda(this.comandaActiva.id, {
+          medio_pago: this.medioPagoSeleccionado,
+          descuento: 0.0
+        });
+      } else {
+        // Venta directa estándar
+        const payload = {
+          mesa: this.mesaSeleccionada,
+          cliente: cliente || 'Consumidor Final',
+          medio_pago: this.medioPagoSeleccionado,
+          items: this.carrito.map(i => ({
+            producto_id: i.producto.id,
+            cantidad: i.cantidad
+          }))
+        };
+        ticket = await API.checkout(payload);
+      }
+
       App.showToast(`Ticket ${ticket.numero_ticket} emitido exitosamente`, 'success');
       this.closeCheckoutModal();
       this.clearCart();
-      await this.loadProducts(); // Refrescar existencias
+      await this.refresh();
 
-      // Mostrar e imprimir comprobante térmico
+      // Mostrar comprobante térmico
       this.showTicketPrintModal(ticket);
     } catch (err) {
       App.showToast(err.message, 'error');

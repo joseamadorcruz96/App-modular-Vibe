@@ -99,15 +99,15 @@ class PedidoCreate(BaseModel):
     @classmethod
     def validar_medio_pago(cls, v: str) -> str:
         medios_permitidos = {"Efectivo", "Débito", "Crédito", "Transferencia"}
-        v_limpio = v.strip().capitalize()
-        # Mapeo de acentos comunes
-        if v_limpio in {"Debito", "Débito"}:
+        v_limpio = v.strip()
+        if "debito" in v_limpio.lower() or "débito" in v_limpio.lower():
             return "Débito"
-        if v_limpio in {"Credito", "Crédito"}:
+        if "credito" in v_limpio.lower() or "crédito" in v_limpio.lower():
             return "Crédito"
-        if v_limpio not in medios_permitidos:
+        v_cap = v_limpio.capitalize()
+        if v_cap not in medios_permitidos:
             raise ValueError(f"Medio de pago inválido. Permitidos: {', '.join(medios_permitidos)}")
-        return v_limpio
+        return v_cap
 
 
 class ItemPedidoResponse(BaseModel):
@@ -190,3 +190,178 @@ class ReiniciarStockRequest(BaseModel):
 class LimpiezaTotalRequest(BaseModel):
     """Petición de formateo total con palabra de resguardo."""
     palabra_clave: str = Field(..., description="Debe ser exactamente 'borrar' para ejecutar la purga")
+
+
+# ==============================================================================
+# Esquemas para Insumos / Materias Primas y Recetas (Escandallo)
+# ==============================================================================
+
+class InsumoBase(BaseModel):
+    """Esquema base de materia prima / insumo."""
+    codigo: str = Field(..., min_length=1, max_length=20, description="Código único de insumo (ej: INS-CAFE)")
+    nombre: str = Field(..., min_length=2, max_length=100, description="Nombre legible del insumo")
+    unidad_medida: str = Field(..., min_length=1, max_length=20, description="Unidad: g, ml, unidad, oz, etc.")
+    stock_actual: float = Field(..., ge=0.0, description="Cantidad física disponible")
+    stock_minimo: float = Field(0.0, ge=0.0, description="Umbral de alerta de reabastecimiento")
+    costo_unitario: float = Field(..., ge=0.0, description="Costo por unidad de medida")
+
+    @field_validator("codigo")
+    @classmethod
+    def normalizar_codigo(cls, v: str) -> str:
+        return v.strip().upper()
+
+    @field_validator("nombre")
+    @classmethod
+    def sanitizar_nombre(cls, v: str) -> str:
+        return v.strip()
+
+
+class InsumoCreate(InsumoBase):
+    """Esquema para crear un nuevo insumo."""
+    pass
+
+
+class InsumoUpdate(BaseModel):
+    """Esquema para editar propiedades de un insumo."""
+    codigo: Optional[str] = Field(None, min_length=1, max_length=20)
+    nombre: Optional[str] = Field(None, min_length=2, max_length=100)
+    unidad_medida: Optional[str] = Field(None, min_length=1, max_length=20)
+    stock_actual: Optional[float] = Field(None, ge=0.0)
+    stock_minimo: Optional[float] = Field(None, ge=0.0)
+    costo_unitario: Optional[float] = Field(None, ge=0.0)
+    activo: Optional[int] = Field(None, ge=0, le=1)
+
+    @field_validator("codigo")
+    @classmethod
+    def normalizar_codigo(cls, v: Optional[str]) -> Optional[str]:
+        return v.strip().upper() if v else None
+
+
+class InsumoReabastecer(BaseModel):
+    """Suma stock entrante a un insumo."""
+    cantidad: float = Field(..., gt=0.0, description="Cantidad positiva a incorporar al inventario")
+
+
+class InsumoResponse(InsumoBase):
+    """Respuesta con datos de insumo y alerta de stock mínimo."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    activo: int
+    alerta_stock: bool = False
+    creado_en: Optional[str] = None
+    actualizado_en: Optional[str] = None
+
+
+class RecetaItemCreate(BaseModel):
+    """Ingrediente individual requerido en la receta de un producto."""
+    insumo_id: int = Field(..., gt=0)
+    cantidad: float = Field(..., gt=0.0, description="Cantidad de insumo por 1 unidad de producto")
+
+
+class RecetaConfig(BaseModel):
+    """Configuración o actualización de la receta completa de un producto."""
+    ingredientes: List[RecetaItemCreate] = Field(..., min_length=1, description="Lista de insumos requeridos")
+
+
+class RecetaItemResponse(BaseModel):
+    """Detalle de un insumo dentro de la receta de un producto."""
+    insumo_id: int
+    insumo_codigo: str
+    insumo_nombre: str
+    unidad_medida: str
+    cantidad: float
+    costo_unitario_insumo: float
+    costo_por_porcion: float
+
+
+class RecetaDetalleResponse(BaseModel):
+    """Ficha técnica de receta con análisis financiero de costos y márgenes."""
+    producto_id: int
+    producto_codigo: str
+    producto_nombre: str
+    precio_venta: float
+    tiene_receta: bool
+    costo_receta: float
+    margen_bruto: float
+    margen_porcentaje: float
+    ingredientes: List[RecetaItemResponse]
+
+
+# ==============================================================================
+# Esquemas para Comandas de Salón (Mesas Abiertas)
+# ==============================================================================
+
+class ComandaCreate(BaseModel):
+    """Apertura de comanda en una mesa."""
+    mesa: str = Field(..., min_length=1, max_length=50, description="Mesa a ocupar (ej: 'Mesa 1')")
+    cliente: Optional[str] = Field("Consumidor Final", max_length=100)
+
+
+class ComandaItemAdd(BaseModel):
+    """Adición de producto(s) a una comanda abierta."""
+    producto_id: int = Field(..., gt=0)
+    cantidad: int = Field(..., gt=0)
+    notas: Optional[str] = Field(None, max_length=200, description="Observaciones (ej. 'sin azúcar')")
+
+
+class ComandaItemBatchAdd(BaseModel):
+    """Ronda de múltiples productos a incorporar a una mesa."""
+    items: List[ComandaItemAdd] = Field(..., min_length=1)
+
+
+class ComandaItemResponse(BaseModel):
+    """Línea de consumo acumulada en una mesa."""
+    id: int
+    producto_id: int
+    codigo: str
+    nombre: str
+    cantidad: int
+    precio_unitario: float
+    subtotal: float
+    notas: Optional[str] = None
+    creado_en: Optional[str] = None
+
+
+class ComandaResponse(BaseModel):
+    """Estado y detalle de una comanda de salón."""
+    id: int
+    numero_comanda: str
+    mesa: str
+    cliente: str
+    estado: str
+    subtotal: float
+    total_items: int
+    creado_en: Optional[str] = None
+    detalles: List[ComandaItemResponse]
+
+
+class MesaEstadoResponse(BaseModel):
+    """Resumen de ocupación para la grilla del salón en el TPV."""
+    mesa: str
+    ocupada: bool
+    comanda_id: Optional[int] = None
+    subtotal: float = 0.0
+    cliente: Optional[str] = None
+    items_count: int = 0
+    tiempo_abierta: Optional[str] = None
+
+
+class ComandaCheckout(BaseModel):
+    """Liquidación y cobro de una comanda abierta."""
+    medio_pago: str = Field(..., description="Efectivo, Débito, Crédito o Transferencia")
+    descuento: float = Field(0.0, ge=0.0)
+
+    @field_validator("medio_pago")
+    @classmethod
+    def validar_medio_pago(cls, v: str) -> str:
+        medios = {"Efectivo", "Débito", "Crédito", "Transferencia"}
+        v_limpio = v.strip()
+        if "debito" in v_limpio.lower() or "débito" in v_limpio.lower():
+            return "Débito"
+        if "credito" in v_limpio.lower() or "crédito" in v_limpio.lower():
+            return "Crédito"
+        v_cap = v_limpio.capitalize()
+        if v_cap not in medios:
+            raise ValueError(f"Medio de pago inválido. Permitidos: {', '.join(medios)}")
+        return v_cap

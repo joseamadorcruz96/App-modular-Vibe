@@ -78,6 +78,69 @@ CREATE TABLE IF NOT EXISTS cierres_caja (
     archivo_backup TEXT NOT NULL
 );
 
+-- 6. Tabla de Insumos / Materias Primas
+CREATE TABLE IF NOT EXISTS insumos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    codigo TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    nombre TEXT NOT NULL,
+    unidad_medida TEXT NOT NULL,
+    stock_actual REAL NOT NULL CHECK (stock_actual >= 0),
+    stock_minimo REAL NOT NULL DEFAULT 0 CHECK (stock_minimo >= 0),
+    costo_unitario REAL NOT NULL CHECK (costo_unitario >= 0),
+    activo INTEGER NOT NULL DEFAULT 1 CHECK (activo IN (0, 1)),
+    creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    actualizado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_insumos_codigo ON insumos(codigo);
+CREATE INDEX IF NOT EXISTS idx_insumos_activo ON insumos(activo);
+
+-- 7. Tabla de Recetas / Escandallos (Relación Producto <-> Insumos)
+CREATE TABLE IF NOT EXISTS receta_detalles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    producto_id INTEGER NOT NULL,
+    insumo_id INTEGER NOT NULL,
+    cantidad REAL NOT NULL CHECK (cantidad > 0),
+    FOREIGN KEY (producto_id) REFERENCES productos(id) ON DELETE CASCADE,
+    FOREIGN KEY (insumo_id) REFERENCES insumos(id) ON DELETE RESTRICT,
+    UNIQUE (producto_id, insumo_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_receta_producto_id ON receta_detalles(producto_id);
+CREATE INDEX IF NOT EXISTS idx_receta_insumo_id ON receta_detalles(insumo_id);
+
+-- 8. Tabla de Comandas de Salón (Mesas Abiertas)
+CREATE TABLE IF NOT EXISTS comandas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    numero_comanda TEXT NOT NULL UNIQUE,
+    mesa TEXT NOT NULL,
+    cliente TEXT DEFAULT 'Consumidor Final',
+    estado TEXT NOT NULL DEFAULT 'Abierta' CHECK (estado IN ('Abierta', 'Cobrada', 'Cancelada')),
+    pedido_id INTEGER,
+    creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    cerrado_en TIMESTAMP,
+    FOREIGN KEY (pedido_id) REFERENCES pedidos(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_comandas_mesa_estado ON comandas(mesa, estado);
+CREATE INDEX IF NOT EXISTS idx_comandas_estado ON comandas(estado);
+
+-- 9. Tabla de Líneas de Comanda
+CREATE TABLE IF NOT EXISTS comanda_detalles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    comanda_id INTEGER NOT NULL,
+    producto_id INTEGER NOT NULL,
+    cantidad INTEGER NOT NULL CHECK (cantidad > 0),
+    precio_unitario REAL NOT NULL CHECK (precio_unitario >= 0),
+    subtotal REAL NOT NULL CHECK (subtotal >= 0),
+    notas TEXT,
+    creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (comanda_id) REFERENCES comandas(id) ON DELETE CASCADE,
+    FOREIGN KEY (producto_id) REFERENCES productos(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_comanda_detalles_comanda_id ON comanda_detalles(comanda_id);
+
 -- Semillas iniciales por defecto (si no existen)
 INSERT OR IGNORE INTO configuracion (clave, valor, descripcion) VALUES
     ('mesas_activas', '8', 'Cantidad de mesas activas configuradas para la jornada'),

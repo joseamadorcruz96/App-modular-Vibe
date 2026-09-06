@@ -208,3 +208,90 @@ def test_api_productos_eliminar_y_modificar():
 
     # Verificar que ya no existe (404 al consultar)
     assert client.get(f"/api/productos/{prod_id}").status_code == 404
+
+
+def test_api_insumos_y_recetas():
+    """Valida los endpoints REST para insumos y recetas."""
+    client = TestClient(app)
+
+    # 1. Listar insumos demo
+    res = client.get("/api/insumos")
+    assert res.status_code == 200
+    insumos = res.json()
+    assert len(insumos) >= 5
+
+    # 2. Crear nuevo insumo
+    nuevo_insumo = {
+        "codigo": "INS-CANELA",
+        "nombre": "Canela de Ceilán en Polvo",
+        "unidad_medida": "g",
+        "stock_actual": 800.0,
+        "stock_minimo": 100.0,
+        "costo_unitario": 35.0
+    }
+    res_crear = client.post("/api/insumos", json=nuevo_insumo)
+    assert res_crear.status_code == 201
+    ins_id = res_crear.json()["id"]
+
+    # 3. Reabastecer insumo (+200 g)
+    res_reab = client.post(f"/api/insumos/{ins_id}/reabastecer", json={"cantidad": 200.0})
+    assert res_reab.status_code == 200
+    assert res_reab.json()["stock_actual"] == 1000.0
+
+    # 4. Consultar receta existente de producto 4 (Capuccino)
+    res_receta = client.get("/api/productos/4/receta")
+    assert res_receta.status_code == 200
+    receta_data = res_receta.json()
+    assert receta_data["tiene_receta"] is True
+    assert receta_data["costo_receta"] > 0
+    assert receta_data["margen_bruto"] > 0
+    assert receta_data["margen_porcentaje"] > 0
+
+
+def test_api_comandas_ciclo_completo():
+    """Valida el ciclo de vida de comandas por API: estado mesas, abrir, agregar ítems y checkout."""
+    client = TestClient(app)
+
+    # 1. Consultar estado inicial del salón
+    res_mesas = client.get("/api/comandas/mesas-estado")
+    assert res_mesas.status_code == 200
+    mesas = res_mesas.json()
+    assert len(mesas) >= 1
+    assert all(not m["ocupada"] for m in mesas)
+
+    # 2. Abrir Mesa 1
+    res_abrir = client.post("/api/comandas/abrir", json={"mesa": "Mesa 1", "cliente": "Sra. Carmen"})
+    assert res_abrir.status_code == 201
+    cmd = res_abrir.json()
+    cmd_id = cmd["id"]
+    assert cmd["mesa"] == "Mesa 1"
+    assert cmd["estado"] == "Abierta"
+
+    # 3. Agregar ítems a la comanda
+    res_items = client.post(f"/api/comandas/{cmd_id}/items", json={
+        "items": [
+            {"producto_id": 1, "cantidad": 1, "notas": "descafeinado"},
+            {"producto_id": 7, "cantidad": 1}
+        ]
+    })
+    assert res_items.status_code == 200
+    cmd_upd = res_items.json()
+    assert cmd_upd["total_items"] == 2
+    assert cmd_upd["subtotal"] > 0
+
+    # 4. Verificar que el estado del salón muestra Mesa 1 como ocupada
+    res_mesas_post = client.get("/api/comandas/mesas-estado")
+    m1 = next(m for m in res_mesas_post.json() if m["mesa"] == "Mesa 1")
+    assert m1["ocupada"] is True
+    assert m1["subtotal"] == cmd_upd["subtotal"]
+
+    # 5. Liquidar comanda con checkout
+    res_chk = client.post(f"/api/comandas/{cmd_id}/checkout", json={"medio_pago": "Efectivo", "descuento": 0.0})
+    assert res_chk.status_code == 200
+    ticket = res_chk.json()
+    assert ticket["numero_ticket"].startswith("TCK-")
+
+    # 6. Mesa 1 debe volver a figurar como libre
+    res_mesas_final = client.get("/api/comandas/mesas-estado")
+    m1_final = next(m for m in res_mesas_final.json() if m["mesa"] == "Mesa 1")
+    assert m1_final["ocupada"] is False

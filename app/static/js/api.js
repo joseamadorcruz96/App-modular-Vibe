@@ -155,5 +155,152 @@ const API = {
       throw new Error(err.detail || 'Error al cargar catálogo demo');
     }
     return await res.json();
+  },
+
+  // ============================================================================
+  // Insumos / Materias Primas
+  // ============================================================================
+  async getInsumos(soloActivos = true) {
+    const res = await fetch(`/api/insumos?solo_activos=${soloActivos}`);
+    if (!res.ok) throw new Error('Error al obtener materias primas');
+    return await res.json();
+  },
+
+  async createInsumo(data) {
+    const res = await fetch('/api/insumos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (res.status === 409) {
+      const err = await res.json();
+      throw new Error(err.detail || 'El código de insumo ya existe');
+    }
+    if (!res.ok) throw new Error('Error al crear insumo');
+    return await res.json();
+  },
+
+  async updateInsumo(id, data) {
+    const res = await fetch(`/api/insumos/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw new Error('Error al modificar insumo');
+    return await res.json();
+  },
+
+  async replenishInsumo(id, cantidad) {
+    const res = await fetch(`/api/insumos/${id}/reabastecer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cantidad: parseFloat(cantidad) })
+    });
+    if (!res.ok) throw new Error('Error al reabastecer insumo');
+    return await res.json();
+  },
+
+  async deleteInsumo(id) {
+    const res = await fetch(`/api/insumos/${id}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error('Error al eliminar insumo');
+    return await res.json();
+  },
+
+  // ============================================================================
+  // Recetas / Escandallos
+  // ============================================================================
+  async getProductRecipe(productoId) {
+    const res = await fetch(`/api/productos/${productoId}/receta`);
+    if (!res.ok) throw new Error('Error al consultar receta del producto');
+    return await res.json();
+  },
+
+  async saveProductRecipe(productoId, ingredientes) {
+    const res = await fetch(`/api/productos/${productoId}/receta`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ingredientes })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Error al guardar la receta');
+    }
+    return await res.json();
+  },
+
+  async deleteProductRecipe(productoId) {
+    const res = await fetch(`/api/productos/${productoId}/receta`, { method: 'DELETE' });
+    if (!res.ok) throw new Error('Error al eliminar receta');
+    return await res.json();
+  },
+
+  // ============================================================================
+  // Comandas y Mesas Abiertas
+  // ============================================================================
+  async getMesasEstado() {
+    const res = await fetch('/api/comandas/mesas-estado');
+    if (!res.ok) throw new Error('Error al obtener estado de mesas');
+    return await res.json();
+  },
+
+  async getComandaMesa(mesa) {
+    const res = await fetch(`/api/comandas/mesa/${encodeURIComponent(mesa)}`);
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error('Error al consultar comanda de mesa');
+    return await res.json();
+  },
+
+  async openComanda(mesa, cliente = 'Consumidor Final') {
+    const res = await fetch('/api/comandas/abrir', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mesa, cliente })
+    });
+    if (res.status === 409) {
+      const err = await res.json();
+      throw new Error(err.detail || 'La mesa ya se encuentra ocupada');
+    }
+    if (!res.ok) throw new Error('Error al abrir comanda en mesa');
+    return await res.json();
+  },
+
+  async addComandaItems(comandaId, items) {
+    const res = await fetch(`/api/comandas/${comandaId}/items`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items })
+    });
+    if (!res.ok) throw new Error('Error al agregar productos a la mesa');
+    return await res.json();
+  },
+
+  async removeComandaItem(comandaId, detalleId) {
+    const res = await fetch(`/api/comandas/${comandaId}/items/${detalleId}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error('Error al remover producto de la comanda');
+    return await res.json();
+  },
+
+  async checkoutComanda(comandaId, checkoutData) {
+    const res = await fetch(`/api/comandas/${comandaId}/checkout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(checkoutData)
+    });
+    if (res.status === 409) {
+      const err = await res.json();
+      throw new Error(err.detail || 'Stock insuficiente para liquidar la mesa.');
+    }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Error al liquidar comanda de mesa');
+    }
+    return await res.json();
+  },
+
+  async cancelComanda(comandaId) {
+    const res = await fetch(`/api/comandas/${comandaId}/cancelar`, { method: 'POST' });
+    if (!res.ok) throw new Error('Error al cancelar comanda');
+    return await res.json();
   }
 };
+
