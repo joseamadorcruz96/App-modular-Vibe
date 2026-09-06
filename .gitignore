@@ -70,3 +70,6 @@ Desktop.ini
 .settings/
 .vscode/*
 !.vscode/settings.json
+
+# Informes internos y de auditoría de seguridad
+INFORME_VULNERABILIDAD_SEGURIDAD_ACCESO.md
